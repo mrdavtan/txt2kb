@@ -1,7 +1,8 @@
 transformers
-wikipedia
+git+http://github.com/mrdavtan/wikipedia.git@beautifulsoup_warning_fix#egg=wikipedia
 newspaper3k
 GoogleNews
 pyvis
-pytorch
+torch
 torchvision
+lxml

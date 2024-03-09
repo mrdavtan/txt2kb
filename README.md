@@ -54,6 +54,35 @@ run the example txt2kb.py in the test folder and see the printed output.
 python3 txt2kb.py
 ```
 
+This should print the following:
+
+```bash
+
+Input has 726 tokens
+Input has 6 spans
+Span boundaries are [[0, 128], [119, 247], [238, 366], [357, 485], [476, 604], [595, 723]]
+Entities:
+  ('Napoleon', {'url': 'https://en.wikipedia.org/wiki/Napoleon', 'summary': "Napoleon Bonaparte (born Napoleone di Buonaparte; 15 August 1769 – 5 May 1821), later known by his regnal name Napoleon...
+
+... artificial hill constructed from earth taken from the battlefield itself, but the topography of the battlefield near the mound has not been preserved.'})
+Relations:
+  {'head': 'Napoleon', 'type': 'participant in', 'tail': 'French Revolution', 'meta': {'spans': [[0, 128], [119, 247]]}}
+  {'head': 'French Revolution', 'type': 'participant', 'tail': 'Napoleon', 'meta': {'spans': [[0, 128]]}}
+  {'head': 'French Revolution', 'type': 'country', 'tail': 'France', 'meta': {'spans': [[0, 128]]}}
+  {'head': 'Napoleon', 'type': 'place of birth', 'tail': 'Corsica', 'meta': {'spans': [[119, 247]]}}
+  {'head': 'French Directory', 'type': 'facet of', 'tail': 'French Revolution', 'meta': {'spans': [[119, 247]]}}
+  {'head': 'War of the Fourth Coalition', 'type': 'start time', 'tail': '1806', 'meta': {'spans': [[238, 366]]}}
+  {'head': 'Ulm campaign', 'type': 'part of', 'tail': 'War of the Third Coalition', 'meta': {'spans': [[238, 366]]}}
+  {'head': 'Battle of Austerlitz', 'type': 'part of', 'tail': 'War of the Third Coalition', 'meta': {'spans': [[238, 366]]}}
+  {'head': 'War of the Third Coalition', 'type': 'start time', 'tail': '1805', 'meta': {'spans': [[238, 366]]}}
+  {'head': 'Battle of Wagram', 'type': 'part of', 'tail': 'War of the Fifth Coalition', 'meta': {'spans': [[357, 485]]}}
+  {'head': 'War of the Fourth Coalition', 'type': 'followed by', 'tail': 'War of the Fifth Coalition', 'meta': {'spans': [[357, 485]]}}
+  {'head': 'War of the Sixth Coalition', 'type': 'start time', 'tail': '1813', 'meta': {'spans': [[476, 604]]}}
+  {'head': 'Hundred Days', 'type': 'has part', 'tail': 'Battle of Waterloo', 'meta': {'spans': [[595, 723]]}}
+  {'head': 'Battle of Waterloo', 'type': 'part of', 'tail': 'Hundred Days', 'meta': {'spans': [[595, 723]]}}
+
+```
+
 ### 3. Usage Instructions
 
 The `txt2kb.py` utility is designed to be executed with a command-line argument that specifies the text chunk to be processed. This allows for flexible and direct invocation of the utility for generating knowledge bases and graphs from specified textual data.
