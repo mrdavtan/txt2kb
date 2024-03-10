@@ -7,7 +7,11 @@ import torch
 import wikipedia
 from newspaper import Article, ArticleException
 from GoogleNews import GoogleNews
+import requests
+from bs4 import BeautifulSoup
 import IPython
+
+from IPython.display import HTML
 from pyvis.network import Network
 
 def read_text_from_file(file_path):
@@ -187,9 +191,7 @@ def from_small_text_to_kb(text, verbose=False):
     return kb
 
 
-
-def from_text_to_kb(text, article_url, span_length=128, article_title=None,
-    article_publish_date=None, verbose=False):
+def from_text_to_kb(text, article_url, tokenizer, model, span_length=128, article_title=None, article_publish_date=None, verbose=False):
 
     logging.debug("Starting to process text for KB creation")
     # tokenize whole text
@@ -265,13 +267,14 @@ def get_article(url):
     article.parse()
     return article
 
-def from_url_to_kb(url):
+def from_url_to_kb(url, tokenizer, model):
     article = get_article(url)
     config = {
         "article_title": article.title,
         "article_publish_date": article.publish_date
     }
-    kb = from_text_to_kb(article.text, article.url, **config)
+    # Pass tokenizer and model as arguments to from_text_to_kb
+    kb = from_text_to_kb(article.text, article.url, tokenizer, model, **config)
     return kb
 
 def get_news_links(query, lang="en", region="US", pages=1, max_links=100000):
@@ -283,7 +286,7 @@ def get_news_links(query, lang="en", region="US", pages=1, max_links=100000):
         all_urls += googlenews.get_links()
     return list(set(all_urls))[:max_links]
 
-def from_urls_to_kb(urls, verbose=False):
+def from_urls_to_kb(urls, tokenizer, model, verbose=False):
     kb = KB()
     if verbose:
         print(f"{len(urls)} links to visit")
@@ -291,12 +294,37 @@ def from_urls_to_kb(urls, verbose=False):
         if verbose:
             print(f"Visiting {url}...")
         try:
-            kb_url = from_url_to_kb(url)
+            # Now passing tokenizer and model as arguments
+            kb_url = from_url_to_kb(url, tokenizer, model)
             kb.merge_with_kb(kb_url)
         except ArticleException:
             if verbose:
                 print(f"  Couldn't download article at url {url}")
     return kb
+
+
+# Instead of IPython.display.HTML(filename=filename)
+# Just inform the user that the file has been saved and can be viewed in a browser
+
+def save_network_html(kb, filename="network.html"):
+    # create network
+    net = Network(directed=True, width="700px", height="700px", bgcolor="#eeeeee")
+
+    # nodes
+    color_entity = "#00FF00"
+    for e in kb.entities:
+        net.add_node(e, shape="circle", color=color_entity)
+
+    # edges
+    for r in kb.relations:
+        net.add_edge(r["head"], r["tail"], title=r["type"], label=r["type"])
+
+    # save network
+    net.repulsion(node_distance=200, central_gravity=0.2, spring_length=200, spring_strength=0.05, damping=0.09)
+    net.set_edge_smooth('dynamic')
+    net.save_graph(filename)
+    print(f"Network visualization saved to {filename}. Open this file in your web browser to view the network.")    #net.show(filename)
+
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger("urllib3").setLevel(logging.WARNING)
@@ -304,14 +332,27 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 tokenizer = AutoTokenizer.from_pretrained("Babelscape/rebel-large")
 model = AutoModelForSeq2SeqLM.from_pretrained("Babelscape/rebel-large")
 
+
+#Single URL source
 #url = "https://finance.yahoo.com/news/microstrategy-bitcoin-millions-142143795.html"
 #kb = from_url_to_kb(url)
 #kb.print()
 
+#Multi URL source Search
+#news_links = get_news_links("Google", pages=1, max_links=3)
+#kb = from_urls_to_kb(news_links, verbose=True)
+#kb.print()
 
-news_links = get_news_links("Google", pages=1, max_links=3)
-kb = from_urls_to_kb(news_links, verbose=True)
-kb.print()
+# Visualize Multi URL source
+news_links = get_news_links("Google", pages=5, max_links=20)
+kb = from_urls_to_kb(news_links, tokenizer, model, verbose=True)
+
+filename = "network_3_google.html"
+save_network_html(kb, filename=filename)
+
+# Inform the user that the visualization is available
+print(f"Network visualization saved to {filename}. Open this file in your web browser to view the network.")
+
 
 
 def main():
@@ -340,7 +381,9 @@ def main():
         logging.debug(f"Extracted {len(relations)} relations from the text.")
 
         # Process the text to extract knowledge base
-        kb = from_text_to_kb(text, verbose=True)
+        kb = from_text_to_kb(article.text, article.url, tokenizer, model, **config)
+
+
         kb.print()
 
     except Exception as e:
