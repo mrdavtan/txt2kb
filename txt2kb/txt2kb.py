@@ -133,6 +133,13 @@ class KB():
         else:
             self.merge_relations(r)
 
+    def merge_with_kb(self, kb2):
+        for r in kb2.relations:
+            article_url = list(r["meta"].keys())[0]
+            source_data = kb2.sources[article_url]
+            self.add_relation(r, source_data["article_title"],
+                              source_data["article_publish_date"])
+
     def print(self):
         print("Entities:")
         for e in self.entities.items():
@@ -267,15 +274,45 @@ def from_url_to_kb(url):
     kb = from_text_to_kb(article.text, article.url, **config)
     return kb
 
+def get_news_links(query, lang="en", region="US", pages=1, max_links=100000):
+    googlenews = GoogleNews(lang=lang, region=region)
+    googlenews.search(query)
+    all_urls = []
+    for page in range(pages):
+        googlenews.get_page(page)
+        all_urls += googlenews.get_links()
+    return list(set(all_urls))[:max_links]
+
+def from_urls_to_kb(urls, verbose=False):
+    kb = KB()
+    if verbose:
+        print(f"{len(urls)} links to visit")
+    for url in urls:
+        if verbose:
+            print(f"Visiting {url}...")
+        try:
+            kb_url = from_url_to_kb(url)
+            kb.merge_with_kb(kb_url)
+        except ArticleException:
+            if verbose:
+                print(f"  Couldn't download article at url {url}")
+    return kb
+
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 tokenizer = AutoTokenizer.from_pretrained("Babelscape/rebel-large")
 model = AutoModelForSeq2SeqLM.from_pretrained("Babelscape/rebel-large")
 
-url = "https://finance.yahoo.com/news/microstrategy-bitcoin-millions-142143795.html"
-kb = from_url_to_kb(url)
+#url = "https://finance.yahoo.com/news/microstrategy-bitcoin-millions-142143795.html"
+#kb = from_url_to_kb(url)
+#kb.print()
+
+
+news_links = get_news_links("Google", pages=1, max_links=3)
+kb = from_urls_to_kb(news_links, verbose=True)
 kb.print()
+
 
 def main():
 
