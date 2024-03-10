@@ -9,8 +9,8 @@ from newspaper import Article, ArticleException
 from GoogleNews import GoogleNews
 import requests
 from bs4 import BeautifulSoup
+from urllib.parse import urlparse, urlunparse
 import IPython
-
 from IPython.display import HTML
 from pyvis.network import Network
 
@@ -261,21 +261,84 @@ def from_text_to_kb(text, article_url, tokenizer, model, span_length=128, articl
 
     return kb
 
+#def get_article(url):
+#    article = Article(url)
+#    article.download()
+#    article.parse()
+#    return article
+
+class Article:
+    def __init__(self, title, text):
+        self.title = title
+        self.text = text
+
 def get_article(url):
-    article = Article(url)
-    article.download()
-    article.parse()
-    return article
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
+    }
+
+    try:
+        # Send a request to the URL
+        response = requests.get(url, headers=headers)
+        # Raise an HTTPError exception for bad requests (4XX or 5XX)
+        response.raise_for_status()
+
+        # Parse the content of the response using BeautifulSoup
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Find the article title and text
+        # Note: You may need to adjust the selectors depending on the site's structure
+        title = soup.find('h1').get_text(strip=True)
+        # Assuming the main content of the article is within <p> tags
+        # Adjust the selector as necessary for different sites
+        text = ' '.join(p.get_text(strip=True) for p in soup.find_all('p'))
+
+        # Return an Article object with the title and text
+        return Article(title, text)
+
+    except requests.exceptions.HTTPError as errh:
+        print(f"HTTP Error: {errh}")
+    except requests.exceptions.ConnectionError as errc:
+        print(f"Error Connecting: {errc}")
+    except requests.exceptions.Timeout as errt:
+        print(f"Timeout Error: {errt}")
+    except requests.exceptions.RequestException as err:
+        print(f"Oops: Something Else: {err}")
+    # Return None or raise an exception if you prefer to handle it upstream
+    return None
+
+def clean_url(url):
+    parsed_url = urlparse(url)
+    cleaned_url = urlunparse((parsed_url.scheme, parsed_url.netloc, parsed_url.path, "", "", ""))
+    return cleaned_url
 
 def from_url_to_kb(url, tokenizer, model):
     article = get_article(url)
+    if article is None:
+        print(f"Failed to fetch or parse article from {url}")
+        return None  # Or handle the error as appropriate for your use case
+
+    # Assuming `get_article` returns an article object with attributes `title`, `text`, and possibly `publish_date`.
+    # If `publish_date` is not part of your Article class, remove it from the config.
     config = {
         "article_title": article.title,
-        "article_publish_date": article.publish_date
+        # Ensure your Article class or the return value of get_article includes 'publish_date' if you use it here
+        "article_publish_date": getattr(article, 'publish_date', None)  # Use None as default if not available
     }
-    # Pass tokenizer and model as arguments to from_text_to_kb
+
+    # It's crucial that from_text_to_kb is defined to accept these config values correctly
     kb = from_text_to_kb(article.text, article.url, tokenizer, model, **config)
     return kb
+
+#def from_url_to_kb(url, tokenizer, model):
+#    article = get_article(url)
+#    config = {
+#        "article_title": article.title,
+#        "article_publish_date": article.publish_date
+#    }
+#    # Pass tokenizer and model as arguments to from_text_to_kb
+#    kb = from_text_to_kb(article.text, article.url, tokenizer, model, **config)
+#    return kb
 
 def get_news_links(query, lang="en", region="US", pages=1, max_links=100000):
     googlenews = GoogleNews(lang=lang, region=region)
@@ -286,22 +349,73 @@ def get_news_links(query, lang="en", region="US", pages=1, max_links=100000):
         all_urls += googlenews.get_links()
     return list(set(all_urls))[:max_links]
 
-def from_urls_to_kb(urls, tokenizer, model, verbose=False):
-    kb = KB()
-    if verbose:
-        print(f"{len(urls)} links to visit")
-    for url in urls:
+def from_urls_to_kb(news_links, tokenizer, model, verbose=False):
+    main_kb = KB()  # Assuming initialization of your KB object
+    for url in news_links:
+        cleaned_url = clean_url(url)  # Use a different variable name for the cleaned URL
         if verbose:
-            print(f"Visiting {url}...")
+            print(f"Visiting {cleaned_url}...")
         try:
-            # Now passing tokenizer and model as arguments
-            kb_url = from_url_to_kb(url, tokenizer, model)
-            kb.merge_with_kb(kb_url)
-        except ArticleException:
-            if verbose:
-                print(f"  Couldn't download article at url {url}")
-    return kb
+            kb_article = from_url_to_kb(cleaned_url, tokenizer, model)  # Use cleaned_url here
+            if kb_article:
+                main_kb.merge_with_kb(kb_article)
+            else:
+                print(f"Failed to process {cleaned_url}, received None")
+        except Exception as e:
+            print(f"An error occurred while processing {cleaned_url}: {e}")
+    return main_kb
 
+#def from_urls_to_kb(news_links, tokenizer, model, verbose=False):
+#    main_kb = KB()  # Assuming initialization of your KB object
+#    for url in news_links:
+#        clean_url = clean_url(url)  # Clean the URL
+#        if verbose:
+#            print(f"Visiting {clean_url}...")
+#        try:
+#            kb_article = from_url_to_kb(clean_url, tokenizer, model)
+#            if kb_article:
+#                main_kb.merge_with_kb(kb_article)
+#            else:
+#                print(f"Failed to process {clean_url}, received None")
+#        except Exception as e:
+#            print(f"An error occurred while processing {clean_url}: {e}")
+#    return main_kb
+
+#def from_urls_to_kb(news_links, tokenizer, model, verbose=False):
+#    main_kb = KB()  # Assuming this is your main KB object initialization
+#    if verbose:
+#        print(f"{len(news_links)} links to visit")
+#    for url in news_links:
+#        if verbose:
+#            print(f"Visiting {url}...")
+#        try:
+#            kb_url = from_url_to_kb(url, tokenizer, model)
+#            if kb_url is not None:  # Only merge if kb_url is not None
+#                main_kb.merge_with_kb(kb_url)
+#            else:
+#                if verbose:
+#                    print(f"Failed to process {url}, received None")
+#        except Exception as e:  # Broad exception handling, consider specifying exception types
+#            if verbose:
+#                print(f"An error occurred while processing {url}: {e}")
+#    return main_kb
+
+#def from_urls_to_kb(urls, tokenizer, model, verbose=False):
+#    kb = KB()
+#    if verbose:
+#        print(f"{len(urls)} links to visit")
+#    for url in urls:
+#        if verbose:
+#            print(f"Visiting {url}...")
+#        try:
+#            # Now passing tokenizer and model as arguments
+#            kb_url = from_url_to_kb(url, tokenizer, model)
+#            kb.merge_with_kb(kb_url)
+#        except ArticleException:
+#            if verbose:
+#                print(f"  Couldn't download article at url {url}")
+#    return kb
+#
 
 # Instead of IPython.display.HTML(filename=filename)
 # Just inform the user that the file has been saved and can be viewed in a browser
@@ -352,8 +466,6 @@ save_network_html(kb, filename=filename)
 
 # Inform the user that the visualization is available
 print(f"Network visualization saved to {filename}. Open this file in your web browser to view the network.")
-
-
 
 def main():
 
