@@ -63,6 +63,8 @@ class KB():
     def __init__(self):
         self.relations = []
         self.entities = {}
+        # meta: { article_url: { spans: [...] } } ]
+        self.sources = {} # { article_url: {...} }
 
     def are_relations_equal(self, r1, r2):
         return all(r1[attr] == r2[attr] for attr in ["head", "type", "tail"])
@@ -70,12 +72,20 @@ class KB():
     def exists_relation(self, r1):
         return any(self.are_relations_equal(r1, r2) for r2 in self.relations)
 
-    def merge_relations(self, r1):
-        r2 = [r for r in self.relations
-              if self.are_relations_equal(r1, r)][0]
-        spans_to_add = [span for span in r1["meta"]["spans"]
-                        if span not in r2["meta"]["spans"]]
-        r2["meta"]["spans"] += spans_to_add
+    def merge_relations(self, r2):
+        r1 = [r for r in self.relations
+              if self.are_relations_equal(r2, r)][0]
+
+        # if different article
+        article_url = list(r2["meta"].keys())[0]
+        if article_url not in r1["meta"]:
+            r1["meta"][article_url] = r2["meta"][article_url]
+
+        # if existing article
+        else:
+            spans_to_add = [span for span in r2["meta"][article_url]["spans"]
+                            if span not in r1["meta"][article_url]["spans"]]
+            r1["meta"][article_url]["spans"] += spans_to_add
 
     def get_wikipedia_data(self, candidate_entity):
         try:
@@ -92,9 +102,8 @@ class KB():
     def add_entity(self, e):
         self.entities[e["title"]] = {k:v for k,v in e.items() if k != "title"}
 
-    def add_relation(self, r):
+    def add_relation(self, r, article_title, article_publish_date):
         # check on wikipedia
-        print("Attempting to add relation:", r)
         candidate_entities = [r["head"], r["tail"]]
         entities = [self.get_wikipedia_data(ent) for ent in candidate_entities]
 
@@ -110,6 +119,14 @@ class KB():
         r["head"] = entities[0]["title"]
         r["tail"] = entities[1]["title"]
 
+        # add source if not in kb
+        article_url = list(r["meta"].keys())[0]
+        if article_url not in self.sources:
+            self.sources[article_url] = {
+                "article_title": article_title,
+                "article_publish_date": article_publish_date
+            }
+
         # manage new relation
         if not self.exists_relation(r):
             self.relations.append(r)
@@ -123,6 +140,9 @@ class KB():
         print("Relations:")
         for r in self.relations:
             print(f"  {r}")
+        print("Sources:")
+        for s in self.sources.items():
+            print(f"  {s}")
 
 def from_small_text_to_kb(text, verbose=False):
     kb = KB()
@@ -160,7 +180,10 @@ def from_small_text_to_kb(text, verbose=False):
     return kb
 
 
-def from_text_to_kb(text, span_length=128, verbose=False):
+
+def from_text_to_kb(text, article_url, span_length=128, article_title=None,
+    article_publish_date=None, verbose=False):
+
     logging.debug("Starting to process text for KB creation")
     # tokenize whole text
     inputs = tokenizer([text], return_tensors="pt")
@@ -220,11 +243,28 @@ def from_text_to_kb(text, span_length=128, verbose=False):
         relations = extract_relations_from_model_output(sentence_pred)
         for relation in relations:
             relation["meta"] = {
-                "spans": [spans_boundaries[current_span_index]]
+                article_url: {
+                    "spans": [spans_boundaries[current_span_index]]
+                }
             }
-            kb.add_relation(relation)
+            kb.add_relation(relation, article_title, article_publish_date)
         i += 1
 
+    return kb
+
+def get_article(url):
+    article = Article(url)
+    article.download()
+    article.parse()
+    return article
+
+def from_url_to_kb(url):
+    article = get_article(url)
+    config = {
+        "article_title": article.title,
+        "article_publish_date": article.publish_date
+    }
+    kb = from_text_to_kb(article.text, article.url, **config)
     return kb
 
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -232,6 +272,10 @@ logging.getLogger("urllib3").setLevel(logging.WARNING)
 
 tokenizer = AutoTokenizer.from_pretrained("Babelscape/rebel-large")
 model = AutoModelForSeq2SeqLM.from_pretrained("Babelscape/rebel-large")
+
+url = "https://finance.yahoo.com/news/microstrategy-bitcoin-millions-142143795.html"
+kb = from_url_to_kb(url)
+kb.print()
 
 def main():
 
