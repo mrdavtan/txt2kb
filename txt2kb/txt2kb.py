@@ -10,7 +10,7 @@ from GoogleNews import GoogleNews
 import requests
 from bs4 import BeautifulSoup
 import IPython
-from urllib.parse import quote_plus
+from urllib.parse import urlparse, parse_qs, quote_plus, unquote
 from IPython.display import HTML
 from pyvis.network import Network
 
@@ -261,20 +261,119 @@ def from_text_to_kb(text, article_url, tokenizer, model, span_length=128, articl
 
     return kb
 
+
+#####################################################
+class Article:
+    def __init__(self, title, text, url):
+        self.title = title
+        self.text = text
+        self.url = url
+
+def extract_search_terms(url):
+    parsed_url = urlparse(url)
+    path_terms = parsed_url.path.split('/')
+    # Optional: Filter out numeric segments or known non-keyword segments from path_terms
+    filtered_terms = [term for term in path_terms if not term.isdigit() and term not in ['2024', '03', '10']]
+    search_terms = ' '.join(filtered_terms).replace('-', ' ')
+    print(f"Filtered search terms: {search_terms}")  # Diagnostic print
+    return search_terms
+
+def search_google_for_article(query):
+    search_url = f"https://www.google.com/search?q={quote_plus(query)}"
+    print(f"Google search URL: {search_url}")  # Diagnostic print statement
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+
+    try:
+        response = requests.get(search_url, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Attempt to find the first search result link using Google's structure
+        for g in soup.find_all('div', class_='g'):
+            links = g.find_all('a')
+            if links:
+                href = links[0]['href']
+                if href.startswith("http"):
+                    print(f"Found URL from Google search: {href}")  # Diagnostic print
+                    return href
+        print("No valid link found from Google search.")  # If no valid link is found
+        return None
+    except Exception as e:
+        print(f"Failed to search Google for {query}: {e}")
+        return None
+
+def get_article_with_fallback(original_url):
+    article_content = fetch_article(original_url)
+    if article_content:
+        return parse_article(article_content, original_url)
+
+    # Extract search terms from the original URL
+    search_terms = extract_search_terms(original_url)
+    print(f"Search terms extracted for fallback search: {search_terms}")
+    new_url = search_google_for_article(search_terms)
+    if new_url:
+        print(f"Trying alternative URL found via Google: {new_url}")
+        article_content = fetch_article(new_url)
+        if article_content:
+            return parse_article(article_content, new_url)
+
+    return None
+
+###################################################################
+
+def parse_article(html_content, url):
+    soup = BeautifulSoup(html_content, 'html.parser')
+
+    # Attempt to find the title; use a default or alternative if not found
+    title_tag = soup.find('h1')
+    if title_tag is None:
+        # Attempt to find alternative titles, or set a default placeholder
+        title_tag = soup.find('title') or "No Title Found"
+        title = title_tag if isinstance(title_tag, str) else title_tag.get_text().strip()
+    else:
+        title = title_tag.get_text().strip()
+
+    # Concatenate the text of all <p> tags for the article's body
+    text = ' '.join(p.get_text().strip() for p in soup.find_all('p'))
+
+    return Article(title, text, url)
+
 def get_article(url):
-    article = Article(url)
-    article.download()
-    article.parse()
-    return article
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        response = requests.get(url, headers=headers)
+        response.raise_for_status()  # Check if the request was successful
+        # If successful, parse the article
+        # For demonstration, assume Article is initialized here directly
+        article = Article("Direct fetch title", "Direct fetch text")  # Placeholder
+        return article
+    except requests.RequestException:
+        return None  # Return None if direct fetch fails
 
 def from_url_to_kb(url, tokenizer, model):
+    # First, try to directly fetch the article
     article = get_article(url)
+
+    # If direct fetch fails, attempt to fetch via Google search fallback
+    if article is None:
+        print(f"Direct fetch failed for {url}, attempting Google search fallback.")
+        fallback_url = search_google_for_article("Extracted search terms from URL")  # Implement this
+        if fallback_url:
+            article = get_article(fallback_url)  # Try fetching the article from the fallback URL
+            if article is None:
+                print(f"Failed to fetch article from {url} even after Google search fallback.")
+                return None
+        else:
+            print(f"No fallback URL found for {url}.")
+            return None
+
+    # Proceed with processing if the article is successfully fetched
     config = {
         "article_title": article.title,
-        "article_publish_date": article.publish_date
+        "article_publish_date": getattr(article, 'publish_date', None)  # Appropriately handle publish_date
     }
-    # Pass tokenizer and model as arguments to from_text_to_kb
-    kb = from_text_to_kb(article.text, article.url, tokenizer, model, **config)
+
+    # Use the fetched article to build the KB
+    kb = from_text_to_kb(article.text, url, tokenizer, model, **config)
     return kb
 
 def get_news_links(query, lang="en", region="US", pages=1, max_links=100000):
@@ -284,40 +383,56 @@ def get_news_links(query, lang="en", region="US", pages=1, max_links=100000):
     for page in range(pages):
         googlenews.get_page(page)
         all_urls += googlenews.get_links()
-    print("News Links:"+ all_urls )
+    print("News Links:", all_urls )
     return list(set(all_urls))[:max_links]
 
-def from_urls_to_kb(urls, tokenizer, model, verbose=False):
-    kb = KB()
-    if verbose:
-        print(f"{len(urls)} links to visit")
-    for url in urls:
+def from_urls_to_kb(news_links, tokenizer, model, verbose=False):
+    kb = KB()  # Assuming initialization of your KB object
+    for url in news_links:
         if verbose:
             print(f"Visiting {url}...")
-        try:
-            # Now passing tokenizer and model as arguments
-            kb_url = from_url_to_kb(url, tokenizer, model)
-            kb.merge_with_kb(kb_url)
-        except ArticleException:
+
+        # Attempt to fetch the article using the direct method or fallback to Google search
+        article = get_article_with_fallback(url)
+        if article:
+            # If article fetching was successful, process and add it to the KB
+            config = {
+                "article_title": article.title,
+                "article_publish_date": getattr(article, 'publish_date', None)  # Handle publish_date appropriately
+            }
+            # Use the fetched article's text and other details to build part of the KB
+            kb_article = from_text_to_kb(article.text, url, tokenizer, model, **config)
+            if kb_article:
+                kb.merge_with_kb(kb_article)
+            else:
+                if verbose:
+                    print(f"Failed to process article from {url}.")
+        else:
             if verbose:
-                print(f"  Couldn't download article at url {url}")
+                print(f"Failed to fetch article from {url}.")
 
     return kb
 
-#If download fails, search for article on google, find the first search result that matches.
-
 def search_google_for_article(query):
     search_url = f"https://www.google.com/search?q={quote_plus(query)}"
-    headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(search_url, headers=headers)
-    soup = BeautifulSoup(response.text, 'html.parser')
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
 
-    # Find the first search result URL
-    # Note: Google's HTML structure may change; adjust the selector as needed
-    link = soup.find('a', href=True, attrs={'data-ved': True})
-    if link:
-        return link['href']
-    return None
+    try:
+        response = requests.get(search_url, headers=headers)
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        # Attempt to find the first search result link using Google's structure
+        # Note: This part is highly dependent on Google's current markup for search results
+        for g in soup.find_all('div', class_='g'):
+            links = g.find_all('a')
+            if links:
+                href = links[0]['href']
+                if href.startswith("http"):
+                    return href
+        return None
+    except Exception as e:
+        print(f"Failed to search Google for {query}: {e}")
+        return None
 
 def fetch_article(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -326,26 +441,34 @@ def fetch_article(url):
         return response.text
     return None
 
-def get_article_with_fallback(original_url):
-    # Try to fetch the original article
-    article_content = fetch_article(original_url)
-    if article_content:
-        return article_content
+#def get_article_with_fallback(original_url):
+#    # Try to fetch the original article
+#    article_content = fetch_article(original_url)
+#    if article_content:
+#        # Assuming parse_article function exists that returns an Article object
+#        return parse_article(article_content, original_url)
+#
+#    # If the fetch fails, attempt to find the article via Google search
+#    # "extracted or guessed terms from original_url" needs to be implemented
+#    search_terms = "Jeff Bezos Perplexity AI"  # Example, replace with actual extraction logic
+#    new_url = search_google_for_article(search_terms)
+#    if new_url:
+#        print(f"Trying alternative URL found via Google: {new_url}")
+#        article_content = fetch_article(new_url)
+#        if article_content:
+#            return parse_article(article_content, new_url)
+#
+#    return None
 
-    # If the fetch fails, attempt to find the article via Google search
-    search_terms = "extracted or guessed terms from original_url"
-    new_url = search_google_for_article(search_terms)
-    if new_url:
-        print(f"Trying alternative URL found via Google: {new_url}")
-        return fetch_article(new_url)
-
-    return None
-
-
-
-
-
-
+#def parse_article(html_content, url):
+#    # Implement parsing of the HTML content to extract the title and the text of the article
+#    # This is a placeholder; you'll need to adapt it to your specific requirements
+#    soup = BeautifulSoup(html_content, 'html.parser')
+#    title = soup.find('h1').get_text().strip()  # Simplified example; adjust based on actual HTML structure
+#    text = ' '.join([p.get_text().strip() for p in soup.find_all('p')])
+#    # Return an Article object
+#    return Article(title, text, url)
+#
 # Instead of IPython.display.HTML(filename=filename)
 # Just inform the user that the file has been saved and can be viewed in a browser
 
@@ -387,13 +510,6 @@ model = AutoModelForSeq2SeqLM.from_pretrained("Babelscape/rebel-large")
 #kb.print()
 
 # Example usage
-
-article_content = get_article_with_fallback("https://fortune.com/2024/03/10/jeff-bezos-perplexity-ai-tech-investment/")
-if article_content:
-    print("Article fetched successfully.")
-else:
-    print("Failed to fetch the article.")
-
 
 # Visualize Multi URL source
 news_links = get_news_links("Google", pages=5, max_links=20)
