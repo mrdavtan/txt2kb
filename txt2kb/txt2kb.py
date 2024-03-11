@@ -13,6 +13,10 @@ import IPython
 from urllib.parse import urlparse, parse_qs, quote_plus, unquote
 from IPython.display import HTML
 from pyvis.network import Network
+from requests.adapters import HTTPAdapter
+from requests.packages.urllib3.util.retry import Retry
+
+
 
 def read_text_from_file(file_path):
     with open(file_path, 'r', encoding='utf-8') as file:
@@ -269,37 +273,82 @@ class Article:
         self.text = text
         self.url = url
 
+
+
+#def extract_search_terms(url):
+#    parsed_url = urlparse(url)
+#    path_terms = parsed_url.path.split('/')
+#    # Optional: Filter out numeric segments or known non-keyword segments from path_terms
+#    filtered_terms = [term for term in path_terms if not term.isdigit() and term not in ['2024', '03', '10']]
+#    search_terms = ' '.join(filtered_terms).replace('-', ' ')
+#    print(f"Filtered search terms: {search_terms}")  # Diagnostic print
+#    return search_terms
+
+#def search_google_for_article(query):
+#    search_url = f"https://www.google.com/search?q={quote_plus(query)}"
+#    print(f"Google search URL: {search_url}")  # Diagnostic print statement
+#    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
+#
+#    try:
+#        response = requests.get(search_url, headers=headers)
+#        soup = BeautifulSoup(response.text, 'html.parser')
+#
+#        # Attempt to find the first search result link using Google's structure
+#        for g in soup.find_all('div', class_='g'):
+#            links = g.find_all('a')
+#            if links:
+#                href = links[0]['href']
+#                if href.startswith("http"):
+#                    print(f"Found URL from Google search: {href}")  # Diagnostic print
+#                    return href
+#        print("No valid link found from Google search.")  # If no valid link is found
+#        return None
+#    except Exception as e:
+#        print(f"Failed to search Google for {query}: {e}")
+#        return None
+
+#def extract_search_terms(url):
+#    parsed_url = urlparse(url)
+#    # Focus on the path part of the URL, and ignore query parameters for search terms
+#    path_terms = parsed_url.path.split('/')
+#    # Remove common URL fillers, numbers, and file extensions from path terms
+#    filtered_terms = [term for term in path_terms if term and not term.isdigit() and not '.' in term]
+#    # Join the filtered terms into a search query
+#    search_terms = ' '.join(filtered_terms).replace('-', ' ')
+#    print(f"Filtered search terms: {search_terms}")  # Diagnostic print
+#    return search_terms
+
 def extract_search_terms(url):
     parsed_url = urlparse(url)
-    path_terms = parsed_url.path.split('/')
-    # Optional: Filter out numeric segments or known non-keyword segments from path_terms
-    filtered_terms = [term for term in path_terms if not term.isdigit() and term not in ['2024', '03', '10']]
-    search_terms = ' '.join(filtered_terms).replace('-', ' ')
-    print(f"Filtered search terms: {search_terms}")  # Diagnostic print
+    # Focus only on the path part of the URL and ignore query parameters for search terms
+    path_segments = parsed_url.path.split('/')
+    # Remove common URL fillers, numbers, file extensions, and URL parameters from path terms
+    meaningful_segments = [segment for segment in path_segments if segment and not segment.isdigit() and '.' not in segment]
+    # Decode each segment from URL encoding and replace hyphens with spaces
+    search_terms = ' '.join([unquote(segment).replace('-', ' ') for segment in meaningful_segments])
     return search_terms
+
 
 def search_google_for_article(query):
     search_url = f"https://www.google.com/search?q={quote_plus(query)}"
-    print(f"Google search URL: {search_url}")  # Diagnostic print statement
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
-
+    headers = {'User-Agent': 'Mozilla/5.0'}
     try:
         response = requests.get(search_url, headers=headers)
         soup = BeautifulSoup(response.text, 'html.parser')
-
-        # Attempt to find the first search result link using Google's structure
-        for g in soup.find_all('div', class_='g'):
-            links = g.find_all('a')
-            if links:
-                href = links[0]['href']
-                if href.startswith("http"):
-                    print(f"Found URL from Google search: {href}")  # Diagnostic print
-                    return href
-        print("No valid link found from Google search.")  # If no valid link is found
+        # Process the search results to find the first valid article URL
+        # This may require specific handling to skip Google redirect URLs and extract the actual article URL
+        for link in soup.find_all('a', href=True):
+            href = link['href']
+            # Implement any needed logic to validate and clean 'href' here
+            if valid_article_url(href):  # Placeholder for actual validation function
+                print(f"Found URL from Google search: {href}")
+                return href
+        print("No valid link found from Google search.")
         return None
     except Exception as e:
         print(f"Failed to search Google for {query}: {e}")
         return None
+
 
 def get_article_with_fallback(original_url):
     article_content = fetch_article(original_url)
@@ -434,12 +483,30 @@ def search_google_for_article(query):
         print(f"Failed to search Google for {query}: {e}")
         return None
 
+
 def fetch_article(url):
     headers = {'User-Agent': 'Mozilla/5.0'}
-    response = requests.get(url, headers=headers)
-    if response.status_code == 200:
+    session = requests.Session()
+    retries = Retry(total=5, backoff_factor=1, status_forcelist=[500, 502, 503, 504])
+    session.mount('http://', HTTPAdapter(max_retries=retries))
+    session.mount('https://', HTTPAdapter(max_retries=retries))
+
+    try:
+        response = session.get(url, headers=headers)
+        response.raise_for_status()  # This will raise an exception for HTTP error codes
         return response.text
+    except requests.exceptions.HTTPError as e:
+        print(f"HTTP Error: {e}")
+    except requests.exceptions.ConnectionError as e:
+        print(f"Connection Error: {e}")
     return None
+
+#def fetch_article(url):
+#    headers = {'User-Agent': 'Mozilla/5.0'}
+#    response = requests.get(url, headers=headers)
+#    if response.status_code == 200:
+#        return response.text
+#    return None
 
 #def get_article_with_fallback(original_url):
 #    # Try to fetch the original article
