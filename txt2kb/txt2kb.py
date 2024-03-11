@@ -10,7 +10,7 @@ from GoogleNews import GoogleNews
 import requests
 from bs4 import BeautifulSoup
 import IPython
-
+from urllib.parse import quote_plus
 from IPython.display import HTML
 from pyvis.network import Network
 
@@ -284,6 +284,7 @@ def get_news_links(query, lang="en", region="US", pages=1, max_links=100000):
     for page in range(pages):
         googlenews.get_page(page)
         all_urls += googlenews.get_links()
+    print("News Links:"+ all_urls )
     return list(set(all_urls))[:max_links]
 
 def from_urls_to_kb(urls, tokenizer, model, verbose=False):
@@ -300,7 +301,49 @@ def from_urls_to_kb(urls, tokenizer, model, verbose=False):
         except ArticleException:
             if verbose:
                 print(f"  Couldn't download article at url {url}")
+
     return kb
+
+#If download fails, search for article on google, find the first search result that matches.
+
+def search_google_for_article(query):
+    search_url = f"https://www.google.com/search?q={quote_plus(query)}"
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    response = requests.get(search_url, headers=headers)
+    soup = BeautifulSoup(response.text, 'html.parser')
+
+    # Find the first search result URL
+    # Note: Google's HTML structure may change; adjust the selector as needed
+    link = soup.find('a', href=True, attrs={'data-ved': True})
+    if link:
+        return link['href']
+    return None
+
+def fetch_article(url):
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    response = requests.get(url, headers=headers)
+    if response.status_code == 200:
+        return response.text
+    return None
+
+def get_article_with_fallback(original_url):
+    # Try to fetch the original article
+    article_content = fetch_article(original_url)
+    if article_content:
+        return article_content
+
+    # If the fetch fails, attempt to find the article via Google search
+    search_terms = "extracted or guessed terms from original_url"
+    new_url = search_google_for_article(search_terms)
+    if new_url:
+        print(f"Trying alternative URL found via Google: {new_url}")
+        return fetch_article(new_url)
+
+    return None
+
+
+
+
 
 
 # Instead of IPython.display.HTML(filename=filename)
@@ -342,6 +385,15 @@ model = AutoModelForSeq2SeqLM.from_pretrained("Babelscape/rebel-large")
 #news_links = get_news_links("Google", pages=1, max_links=3)
 #kb = from_urls_to_kb(news_links, verbose=True)
 #kb.print()
+
+# Example usage
+
+article_content = get_article_with_fallback("https://fortune.com/2024/03/10/jeff-bezos-perplexity-ai-tech-investment/")
+if article_content:
+    print("Article fetched successfully.")
+else:
+    print("Failed to fetch the article.")
+
 
 # Visualize Multi URL source
 news_links = get_news_links("Google", pages=5, max_links=20)
