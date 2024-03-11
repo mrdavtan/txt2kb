@@ -329,6 +329,26 @@ class Article:
         self.text = text
         self.url = url
 
+def fetch_article(url):
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    session = requests.Session()
+    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504], allowed_methods=["GET"])
+    session.mount("http://", HTTPAdapter(max_retries=retries))
+    session.mount("https://", HTTPAdapter(max_retries=retries))
+    try:
+        response = session.get(url, headers=headers)
+        response.raise_for_status()
+        return response.text
+    except Exception as e:
+        print(f"Error while fetching article: {e}")
+    return None
+
+def parse_article(html_content, url):
+    soup = BeautifulSoup(html_content, 'html.parser')
+    title = soup.find('h1').get_text(strip=True) if soup.find('h1') else 'No Title Found'
+    text = ' '.join(p.get_text(strip=True) for p in soup.find_all('p'))
+    return Article(title, text, url)
+
 def search_google_for_article(query):
     search_url = f"https://www.google.com/search?q={quote_plus(query)}"
     headers = {'User-Agent': 'Mozilla/5.0'}
@@ -337,78 +357,25 @@ def search_google_for_article(query):
         soup = BeautifulSoup(response.text, 'html.parser')
         for link in soup.find_all('a', href=True):
             href = link['href']
-            if "url?q=" in href:  # Simplistic check for actual URLs in Google search results
-                clean_href = href.split("&")[0].split("url?q=")[-1]
-                clean_href = unquote(clean_href)
-                print(f"Found URL from Google search: {clean_href}")
+            if "url?q=" in href and not href.startswith("/url?q=https://maps.google.com"):
+                clean_href = unquote(href.split("url?q=")[-1].split("&")[0])
                 return clean_href
-        print("No valid link found from Google search.")
-        return None
     except Exception as e:
         print(f"Failed to search Google for {query}: {e}")
-        return None
-
-
-def get_news_links(query, lang="en", region="US", pages=1, max_links=100000):
-    googlenews = GoogleNews(lang=lang, region=region)
-    googlenews.search(query)
-    all_urls = []
-    for page in range(pages):
-        googlenews.get_page(page)
-        all_urls += googlenews.get_links()
-    print("News Links:", all_urls )
-    return list(set(all_urls))[:max_links]
+    return None
 
 def get_article_with_fallback(original_url):
-    # Try to fetch the original article
     article_content = fetch_article(original_url)
     if article_content:
         return parse_article(article_content, original_url)
 
-    # Extract search terms from the original URL for the fallback search
+    # Extract search terms from the original URL
     search_terms = extract_search_terms(original_url)
-    print(f"Search terms extracted for fallback search: {search_terms}")
     new_url = search_google_for_article(search_terms)
     if new_url:
-        print(f"Trying alternative URL found via Google: {new_url}")
         article_content = fetch_article(new_url)
         if article_content:
             return parse_article(article_content, new_url)
-
-    return None
-
-
-def parse_article(html_content, url):
-    # Use BeautifulSoup to parse the HTML content
-    soup = BeautifulSoup(html_content, 'html.parser')
-
-    # Example: Extract the title and the text from the parsed HTML
-    # This might need to be adjusted depending on the HTML structure of your target articles
-    title = soup.find('h1').get_text(strip=True) if soup.find('h1') else 'No Title Found'
-    text = ' '.join(p.get_text(strip=True) for p in soup.find_all('p'))
-
-    # Return an instance of the Article class with the extracted information
-    return Article(title, text, url)
-
-def fetch_article(url):
-    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'}
-    session = requests.Session()
-
-    retries = Retry(total=3, backoff_factor=0.5, status_forcelist=[500, 502, 503, 504], allowed_methods=["GET"])
-
-    session.mount("http://", HTTPAdapter(max_retries=retries))
-    session.mount("https://", HTTPAdapter(max_retries=retries))
-
-    try:
-        response = session.get(url, headers=headers)
-        response.raise_for_status()  # Raises an HTTPError for bad responses (4XX, 5XX)
-        return response.text
-    except requests.exceptions.HTTPError as e:
-        print(f"HTTP Error while fetching article: {e}")
-    except requests.exceptions.ConnectionError as e:
-        print(f"Connection Error while fetching article: {e}")
-    except Exception as e:
-        print(f"General Error while fetching article: {e}")
     return None
 
 def extract_search_terms(url):
@@ -417,14 +384,6 @@ def extract_search_terms(url):
     meaningful_segments = [segment for segment in path_segments if segment and not segment.isdigit() and '.' not in segment]
     search_terms = ' '.join([unquote(segment).replace('-', ' ') for segment in meaningful_segments])
     return search_terms
-
-def clean_url(url):
-    # This assumes `url` is the one obtained from Google's search results
-    parsed_url = urlparse(url)
-    clean_url = f"{parsed_url.scheme}://{parsed_url.netloc}{parsed_url.path}"
-    return clean_url
-
-
 ###################################################################
 
 
