@@ -364,6 +364,24 @@ def search_google_for_article(query):
         print(f"Failed to search Google for {query}: {e}")
     return None
 
+
+def get_news_links(query, pages=1, max_links=20):
+    googlenews = GoogleNews()
+    googlenews.search(query)
+    result_links = []
+
+    for page in range(pages):
+        googlenews.get_page(page)
+        for result in googlenews.results():
+            if len(result_links) < max_links:
+                result_links.append(result['link'])
+            else:
+                break
+        if len(result_links) >= max_links:
+            break
+
+    return result_links[:max_links]
+
 def get_article_with_fallback(original_url):
     article_content = fetch_article(original_url)
     if article_content:
