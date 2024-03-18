@@ -1,7 +1,7 @@
 #!/bin/bash
 
+# Move to directory, activate venv
 #cd /home/davtan/code/txt2kb
-#
 source .venv/bin/activate
 echo "Virtual environment activated."
 read -p "Continue to the next step? (y/n): " choice
@@ -56,7 +56,7 @@ if [ "$file_count" -gt 20 ]; then
   fi
 
   # Find the most recent file in ./combined
-  recent_combined_file=$(ls -t | head -1)
+  recent_combined_file=$(ls -t ./combined | head -1)
 
   # Move the most recent file to ../converted
   mv "$recent_combined_file" ../converted
@@ -67,43 +67,41 @@ if [ "$file_count" -gt 20 ]; then
     exit 1
   fi
 
-
-
-
   # Run Python script to create JSON from the latest file
- Run Python script to create JSON from the latest file
-cd ../converted
+  cd ../converted
+  # Update output file name with date
+  output_file="${recent_combined_file%.*}_$(date +%Y_%m_%d).json"
+  python3 "$recent_combined_file" "$output_file"
+  echo "JSON created from the latest file."
+  read -p "Continue to the next step? (y/n): " choice
+  if [ "$choice" != "y" ]; then
+    echo "Script execution stopped."
+    exit 1
+  fi
+fi
 
-# Update output file name with date
-output_file="${recent_combined_file%.*}_${file_date}.json"
+# Check if a directory with the file date exists
+file_date=$(date +%Y_%m_%d)
+if [ ! -d "$file_date" ]; then
+  mkdir "$file_date"
+  echo "Directory $file_date created."
+fi
 
-python3 "$recent_combined_file" "$output_file"
-echo "JSON created from the latest file."
+python3 /home/davtan/code/txt2k/txt2kb/archive.py
+echo "archive.py executed."
 read -p "Continue to the next step? (y/n): " choice
 if [ "$choice" != "y" ]; then
   echo "Script execution stopped."
   exit 1
 fi
 
-# Check if a directory with the file date exists
-file_date=$(ls -t | head -1 | cut -d'_' -f1)
-if [ ! -d "$file_date" ]; then
-  python3 /home/davtan/code/txt2k/txt2kb/archive.py
-  echo "archive.py executed."
-  read -p "Continue to the next step? (y/n): " choice
-  if [ "$choice" != "y" ]; then
-    echo "Script execution stopped."
-    exit 1
-  fi
-else
-  # Move all *.html files to the directory with matching date
-  mv *.html "$file_date"
-  echo "HTML files moved to the directory with matching date."
-  read -p "Continue to the next step? (y/n): " choice
-  if [ "$choice" != "y" ]; then
-    echo "Script execution stopped."
-    exit 1
-  fi
+# Move all *.html files to the directory with matching date
+mv *.html "$file_date"
+echo "HTML files moved to the directory $file_date."
+read -p "Continue to the next step? (y/n): " choice
+if [ "$choice" != "y" ]; then
+  echo "Script execution stopped."
+  exit 1
 fi
 
 # Check if /home/davtan/code/retrievers/newscollector/newscollector/articles/ has more than 20 JSON files
@@ -122,5 +120,3 @@ if [ "$json_count" -gt 20 ]; then
 fi
 
 echo "Script execution completed."
-
-
