@@ -1,122 +1,165 @@
 #!/bin/bash
 
-# Move to directory, activate venv
-#cd /home/davtan/code/txt2kb
-source .venv/bin/activate
-echo "Virtual environment activated."
-read -p "Continue to the next step? (y/n): " choice
-if [ "$choice" != "y" ]; then
-  echo "Script execution stopped."
-  exit 1
-fi
+# Function to activate the virtual environment
+activate_venv() {
+  if [ -f ".venv/bin/activate" ]; then
+    source .venv/bin/activate
+    echo "Virtual environment activated: $VIRTUAL_ENV"
+  else
+    echo "Virtual environment not found. Ensure '.venv/bin/activate' exists."
+    exit 1
+  fi
+}
 
-# Move to directory where files are
-cd ./txt2kb
-echo "Moved to ./txt2kb directory."
-read -p "Continue to the next step? (y/n): " choice
-if [ "$choice" != "y" ]; then
-  echo "Script execution stopped."
-  exit 1
-fi
+# Function to navigate to the specified directory
+navigate_to_directory() {
+  local dir=$1
+  if [ -d "$dir" ]; then
+    cd "$dir" || exit  # Exit if cd fails
+    echo "Moved to the directory: $PWD."
+  else
+    echo "Directory '$dir' not found. Exiting."
+    exit 1
+  fi
+}
 
-# Check if there are more than 20 files
-file_count=$(ls -1 | wc -l)
-if [ "$file_count" -gt 20 ]; then
-  # Check if combined* exists
-  if [ ! -f "combined*" ]; then
+# Function to execute combine.py safely
+execute_combine_py() {
+  if [ -f "combine.py" ]; then
     python3 combine.py
     echo "combine.py executed."
-    read -p "Continue to the next step? (y/n): " choice
-    if [ "$choice" != "y" ]; then
+  else
+    echo "combine.py not found. Skipping."
+  fi
+}
+
+# Function to check for file existence with pattern
+check_files_pattern_exist() {
+  local pattern=$1
+  local files=($(ls $pattern 2>/dev/null))
+  [ ${#files[@]} -gt 0 ]
+}
+
+# Function to move and process files
+move_and_process_files() {
+  local target_directory=$1
+  local script=$2
+  local recent_file=$(ls -t | head -1)
+
+  echo "Files in current directory before moving: $(ls -1 | wc -l)"
+  mv "$recent_file" "$target_directory"
+  echo "Moved file: $recent_file to $target_directory"
+  echo "Files in current directory after moving: $(ls -1 | wc -l)"
+
+  if [ -f "$script" ]; then
+    cd "$target_directory" || exit  # Exit if cd fails
+    python3 "$script" "$recent_file"
+    echo "$script executed with the most recent file."
+  else
+    echo "$script not found. Exiting."
+    exit 1
+  fi
+}
+
+# Function to create JSON from the latest file
+create_json_from_latest_file() {
+  local recent_file=$(ls -t | head -1)
+  local output_file="${recent_file%.*}_$(date +%Y_%m_%d).json"
+  # Assuming the correct script to convert to JSON is provided
+  python3 convert_to_json.py "$recent_file" "$output_file"
+  echo "JSON created from the latest file: $output_file"
+}
+
+# Function to archive HTML files
+archive_html_files() {
+  local file_date=$(date +%Y_%m_%d)
+  if [ ! -d "$file_date" ]; then
+    mkdir "$file_date"
+    echo "Directory $file_date created."
+  fi
+
+  local html_files=($(ls *.html 2>/dev/null))
+  local html_count=${#html_files[@]}
+
+  echo "HTML files in current directory before moving: $html_count"
+  for file in "${html_files[@]}"; do
+    mv "$file" "$file_date"
+    echo "Moved HTML file to the directory $file_date: $file"
+  done
+  echo "HTML files in current directory after moving: $(ls -1 *.html | wc -l)"
+}
+
+# Function to process articles, either all or by today's date
+process_articles() {
+  local skip_confirmation=$1
+  local articles_dir="/home/davtan/code/retrievers/newscollector/newscollector/articles"
+  local current_date=$(date +%Y_%m_%d)
+  local articles_count
+
+  if [ -d "$articles_dir" ]; then
+    articles_count=$(find "$articles_dir" -maxdepth 1 -type f | wc -l)
+    if [ "$articles_count" -gt 20 ]; then
+      echo "More than 20 articles found in the 'articles' directory."
+      if [ "$skip_confirmation" != "-y" ]; then
+        read -p "Press Enter to continue processing the articles, or 'q' to quit: " choice
+        [[ "$choice" == "q" ]] && return 1
+      fi
+      python3 /home/davtan/code/txt2kb/txt2kb/process.py "$articles_dir"
+      echo "process.py executed for the 'articles' directory."
+    else
+      echo "Less than or equal to 20 articles found. Skipping processing."
+    fi
+  else
+    echo "'articles' directory does not exist."
+  fi
+}
+
+# Main script execution starts here
+skip_confirmation=$1
+
+activate_venv
+navigate_to_directory "txt2kb"
+
+# Example of bypassing user input with the `-y` flag
+if [ "$skip_confirmation" != "-y" ]; then
+  read -p "Continue with the next steps? (y/n): " choice
+  if [ "$choice" != "y" ]; then
+    echo "Script execution stopped."
+    exit 1
+  fi
+fi
+
+# Assuming the continuation of logic that checks and processes files
+if check_files_pattern_exist "combined*"; then
+  execute_combine_py
+  if [ "$skip_confirmation" != "-y" ]; then
+    read -p "Press Enter to continue to move the most recent file, or 'q' to quit: " choice
+    if [ "$choice" == "q" ]; then
       echo "Script execution stopped."
       exit 1
     fi
   fi
 
-  # Find the most recent file created
-  recent_file=$(ls -t | head -1)
+  # Move and process files, assuming 'combined' and 'process.py' as targets
+  move_and_process_files "./combined" "process.py"
 
-  # Move the most recent file to ./combined
-  mv "$recent_file" ./combined
-  echo "Most recent file moved to ./combined."
-  read -p "Continue to the next step? (y/n): " choice
-  if [ "$choice" != "y" ]; then
-    echo "Script execution stopped."
-    exit 1
-  fi
+  # Navigate back to a specific directory if necessary
+  # For instance, if we need to operate in the 'converted' directory after moving files
+  navigate_to_directory "../converted"
 
-  # In the ./combined directory, run combine.py with the most recent file
-  cd ./combined
-  python3 combine.py "$recent_file"
-  echo "combine.py executed with the most recent file."
-  read -p "Continue to the next step? (y/n): " choice
-  if [ "$choice" != "y" ]; then
-    echo "Script execution stopped."
-    exit 1
-  fi
+  # Create JSON from the latest file in 'converted' directory
+  create_json_from_latest_file
 
-  # Find the most recent file in ./combined
-  recent_combined_file=$(ls -t ./combined | head -1)
+  # Archive HTML files, this function might be called from a directory where HTML files need archiving
+  archive_html_files
 
-  # Move the most recent file to ../converted
-  mv "$recent_combined_file" ../converted
-  echo "Most recent file moved to ../converted."
-  read -p "Continue to the next step? (y/n): " choice
-  if [ "$choice" != "y" ]; then
-    echo "Script execution stopped."
-    exit 1
-  fi
-
-  # Run Python script to create JSON from the latest file
-  cd ../converted
-  # Update output file name with date
-  output_file="${recent_combined_file%.*}_$(date +%Y_%m_%d).json"
-  python3 "$recent_combined_file" "$output_file"
-  echo "JSON created from the latest file."
-  read -p "Continue to the next step? (y/n): " choice
-  if [ "$choice" != "y" ]; then
-    echo "Script execution stopped."
-    exit 1
-  fi
+  # Additional processing or cleanup can be added here
+else
+  echo "No 'combined*' files found. Skipping combine.py execution."
 fi
 
-# Check if a directory with the file date exists
-file_date=$(date +%Y_%m_%d)
-if [ ! -d "$file_date" ]; then
-  mkdir "$file_date"
-  echo "Directory $file_date created."
-fi
-
-python3 /home/davtan/code/txt2k/txt2kb/archive.py
-echo "archive.py executed."
-read -p "Continue to the next step? (y/n): " choice
-if [ "$choice" != "y" ]; then
-  echo "Script execution stopped."
-  exit 1
-fi
-
-# Move all *.html files to the directory with matching date
-mv *.html "$file_date"
-echo "HTML files moved to the directory $file_date."
-read -p "Continue to the next step? (y/n): " choice
-if [ "$choice" != "y" ]; then
-  echo "Script execution stopped."
-  exit 1
-fi
-
-# Check if /home/davtan/code/retrievers/newscollector/newscollector/articles/ has more than 20 JSON files
-json_count=$(ls -1 /home/davtan/code/retrievers/newscollector/newscollector/articles/*.json | wc -l)
-if [ "$json_count" -gt 20 ]; then
-  python3 /home/davtan/code/retrievers/newscollector/newscollector/articles/remove_duplicate.py
-  echo "remove_duplicate.py executed."
-  read -p "Continue to the next step? (y/n): " choice
-  if [ "$choice" != "y" ]; then
-    echo "Script execution stopped."
-    exit 1
-  fi
-
-  python3 process.py /home/davtan/code/retrievers/newscollector/newscollector/articles/.
-  echo "process.py executed."
-fi
+# Process articles, with or without skipping confirmation
+process_articles "$skip_confirmation"
 
 echo "Script execution completed."
+
