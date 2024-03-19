@@ -26,31 +26,67 @@ def combine_networks(html_files):
     """Combine nodes and edges from multiple HTML files into a single network."""
     combined_nodes = []
     combined_edges = []
+    unique_nodes = set()
+    unique_edges = set()
     for html_file in html_files:
         nodes, edges = extract_data_from_html(html_file)
-        combined_nodes.extend(nodes)
-        combined_edges.extend(edges)
-    # Removing potential duplicates
-    combined_nodes = [dict(t) for t in {tuple(node.items()) for node in combined_nodes}]
-    combined_edges = [dict(t) for t in {tuple(edge.items()) for edge in combined_edges}]
+        for node in nodes:
+            node_tuple = tuple(node.items())
+            if node_tuple not in unique_nodes:
+                combined_nodes.append(node)
+                unique_nodes.add(node_tuple)
+        for edge in edges:
+            edge_tuple = tuple(edge.items())
+            if edge_tuple not in unique_edges:
+                combined_edges.append(edge)
+                unique_edges.add(edge_tuple)
     return combined_nodes, combined_edges
 
 def create_combined_network(nodes, edges, output_html='combined_network.html'):
-    net = Network(directed=True, width="3000px", height="2000px", bgcolor="#eeeeee")
+    net = Network(directed=True, width="3000px", height="2000px", bgcolor="#333333")
+
+    # Customize node appearance
+    net.set_options("""
+        var options = {
+            "nodes": {
+                "font": {
+                    "color": "black"
+                },
+                "color": {
+                    "highlight": {
+                        "background": "#DDDDDD"
+                    }
+                }
+            },
+            "edges": {
+                "color": {
+                    "color": "#FAE833",
+                    "highlight": "#FAE833"
+                }
+            }
+        }
+    """)
+
+    node_ids = set()  # Keep track of node IDs
     for node in nodes:
         n_id = node.get('id')
         node.pop('id', None)
+        node['color'] = "#AAAAAA"  # Set the color for each node
         net.add_node(n_id, **node)
+        node_ids.add(n_id)  # Add node ID to the set
     for edge in edges:
         from_id = edge.get('from')
         to_id = edge.get('to')
+        if from_id not in node_ids or to_id not in node_ids:
+            print(f"Skipping edge: {from_id} -> {to_id} (missing node)")
+            continue  # Skip the edge if either source or target node is missing
         edge.pop('from', None)
         edge.pop('to', None)
         net.add_edge(from_id, to_id, **edge)
     # Get current date and time
     current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
     # Update output file name with date and time
-    output_html = f"combined_network_{current_datetime}.html"
+    output_html = f"multiday_network_{current_datetime}.html"
     net.save_graph(output_html)
     print(f"Network visualization saved to {output_html}.")
 
