@@ -73,42 +73,60 @@ count_files() {
   echo "$count"
 }
 
+execute_script() {
+  local script="$1"
+  log_message "Executing script: $script"
+
+  # Get the directory and script name
+  local script_directory=$(dirname "$script")
+  local script_name=$(basename "$script")
+
+  if [ -f "$script" ]; then
+    log_message "Script file exists. Executing..."
+
+    # Navigate to the script's directory
+    pushd "$script_directory" >/dev/null
+
+    # Execute the script
+    python3 "$script_name"
+    local exit_status=$?
+
+    # Navigate back to the previous directory
+    popd >/dev/null
+
+    if [ $exit_status -eq 0 ]; then
+      log_message "Script executed successfully."
+    else
+      log_message "Script execution failed with exit status: $exit_status"
+    fi
+  else
+    log_message "Script file not found: $script. Exiting..."
+    return 1
+  fi
+}
+
 #execute_script() {
 #  local script="$1"
 #  log_message "Executing script: $script"
 #  if [ -f "$script" ]; then
 #    log_message "Script file exists. Executing..."
+#
+#    # Get the directory of the script
+#    local script_directory="$(dirname "$script")"
+#
+#    # Change to the script's directory
+#    cd "$script_directory" || return 1
+#
 #    python3 "$script"
 #    log_message "Script executed successfully."
+#
+#    # Change back to the original directory
+#    cd - >/dev/null || return 1
 #  else
 #    log_message "Script file not found: $script. Exiting..."
 #    return 1  # Return error status since script file is not found
 #  fi
 #}
-#
-
-execute_script() {
-  local script="$1"
-  log_message "Executing script: $script"
-  if [ -f "$script" ]; then
-    log_message "Script file exists. Executing..."
-
-    # Get the directory of the script
-    local script_directory="$(dirname "$script")"
-
-    # Change to the script's directory
-    cd "$script_directory" || return 1
-
-    python3 "$script"
-    log_message "Script executed successfully."
-
-    # Change back to the original directory
-    cd - >/dev/null || return 1
-  else
-    log_message "Script file not found: $script. Exiting..."
-    return 1  # Return error status since script file is not found
-  fi
-}
 
 check_files_pattern_exist() {
   local directory="$1"
@@ -170,6 +188,7 @@ create_json_from_latest_file() {
   fi
 }
 
+
 main() {
   local config_file=$1
 
@@ -200,7 +219,18 @@ main() {
   # Move the combined file to the txt2kb/combined directory
   move_files "$txt2kb" "$txt2kb_combined" "combined_*.html"
 
-  #execute_script "$combine_script"
+  # Navigate to the txt2kb/combined directory
+  navigate_to_directory "$txt2kb_combined"
+
+  # Execute the combine.py script inside the txt2kb/combined directory
+  log_message "Executing combine.py script inside $txt2kb_combined"
+  python3 "$txt2kb_combined/combine.py"
+  local exit_status=$?
+  if [ $exit_status -eq 0 ]; then
+    log_message "Script executed successfully."
+  else
+    log_message "Script execution failed with exit status: $exit_status"
+  fi
 
   # Navigate to the txt2kb/converted directory
   navigate_to_directory "$txt2kb_converted"
