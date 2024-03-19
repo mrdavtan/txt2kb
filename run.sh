@@ -1,22 +1,18 @@
 #!/bin/bash
 set -x
 
-initialize_log() {
-  echo "Creating logs directory at: $log_directory"
-  mkdir -p "$log_directory" # Corrected to use the variable directly
+# Initialize global log variables
+log_directory="/path/to/your/logs" # Change this path to your actual log directory path
+log_file="$log_directory/script_log_$(date +%Y%m%d_%H%M%S).log"
 
-  if [ ! -d "$log_directory" ]; then
-    echo "Failed to create the logs directory at '$log_directory'."
-    exit 1
-  else
-    echo "Logs directory verified at '$log_directory'."
-  fi
-
-  local log_file_path="$log_directory/script_log_$(date +%Y%m%d_%H%M%S).log"
-  echo "Script execution log - $(date)" > "$log_file_path"
-  echo "$log_file_path" # This echoes the path for capture by the caller
+# Function to append messages to the log file
+log_message() {
+  echo "$(date +'%Y-%m-%d %H:%M:%S') - $1" >> "$log_file"
 }
 
+# Create the log directory if it doesn't exist and initialize the log file
+mkdir -p "$log_directory"
+log_message "Log initialization started."
 
 read_config() {
   local config_file=$1
@@ -26,127 +22,124 @@ read_config() {
         "venv_directory") venv_directory="$value" ;;
         "txt2kb_root") txt2kb_root="$value" ;;
         "txt2kb") txt2kb="$value" ;;
-
         "newscollector_root") newscollector_root="$value" ;;
         "txt2kb_combined") txt2kb_combined="$value" ;;
         "txt2kb_converted") txt2kb_converted="$value" ;;
-
         "combine_script") combine_script="$value" ;;
         "convert_script") convert_script="$value" ;;
         "process_script") process_script="$value" ;;
         "archive_script") archive_script="$value" ;;
         "newscollector_script") newscollector_script="$value" ;;
-
         "log_directory") log_directory="$value" ;;
       esac
     done < "$config_file"
+    log_message "Configuration loaded successfully."
   else
-    echo "Config file $config_file not found. Exiting."
+    log_message "Config file $config_file not found. Exiting."
     exit 1
   fi
 }
 
 # Function to activate the virtual environment
 activate_venv() {
-  local venv_dir=$1
-  local log_file=$2
+  local venv_dir="$1"
   if [ -f "$venv_dir/bin/activate" ]; then
     source "$venv_dir/bin/activate"
-    echo "Virtual environment activated: $VIRTUAL_ENV" >> "$log_file"
+    log_message "Virtual environment activated: $VIRTUAL_ENV"
   else
-    echo "Virtual environment not found. Ensure '$venv_dir/bin/activate' exists." >> "$log_file"
+    log_message "Virtual environment not found. Ensure '$venv_dir/bin/activate' exists."
     exit 1
   fi
 }
 
 # Function to navigate to the specified directory
 navigate_to_directory() {
-  local dir=$1
-  local log_file=$2
+  local dir="$1"
   dir=$(echo "$dir" | tr -d '[:space:]')  # Remove leading/trailing whitespace
   if [ -d "$dir" ]; then
     cd "$dir" || exit
-    if [ -n "$log_file" ]; then
-      echo "Moved to the directory: $PWD." >> "$log_file"
-    else
-      echo "Moved to the directory: $PWD."
-    fi
+    log_message "Moved to the directory: $PWD."
   else
-    if [ -n "$log_file" ]; then
-      echo "Directory '$dir' not found. Exiting." >> "$log_file"
-    else
-      echo "Directory '$dir' not found. Exiting."
-    fi
+    log_message "Directory '$dir' not found. Exiting."
     exit 1
   fi
 }
 
 # Function to count files in a directory
 count_files() {
-  local directory=$1
-  local pattern=$2
+  local directory="$1"
+  local pattern="$2"
   local count=$(ls $directory/$pattern 2>/dev/null | wc -l)
   echo "$count"
 }
 
 # Function to execute scripts
 execute_script() {
-  local script=$1
-  local directory=$2
-  local skip_confirmation=$3
-  local log_file=$4
+  local script="$1"
+  local directory="$2"
+  local skip_confirmation="$3"
   if [ -f "$directory/$script" ]; then
     if [ "$skip_confirmation" != "-y" ]; then
       read -p "Press Enter to execute $script in $directory, or 'q' to quit: " choice
-      echo "User choice: $choice"   >> "$log_file"
+      log_message "User choice: $choice"
       [[ "$choice" == "q" ]] && return 1
     fi
     cd "$directory" || exit
-
-    echo "Attempting to execute script: $script in directory: $directory"
-    ls -l "$directory/$script"
-
-
     python3 "$script"
-    echo "$script executed in $directory."   >> "$log_file"
+    log_message "$script executed in $directory."
   else
-    echo "$script not found in $directory. Skipping execution."   >> "$log_file"
+    log_message "$script not found in $directory. Skipping execution."
   fi
 }
 
-# Function to check for file existence with pattern
 check_files_pattern_exist() {
-  local directory=$1
-  local pattern=$2
+  local directory="$1"
+  local pattern="$2"
   local files=($(ls $directory/$pattern 2>/dev/null))
-  [ ${#files[@]} -gt 0 ]
+  local exists=0
+
+  if [ ${#files[@]} -gt 0 ]; then
+    exists=1
+    log_message "Files matching pattern '$pattern' exist in directory '$directory'."
+  else
+    log_message "No files matching pattern '$pattern' found in directory '$directory'."
+  fi
+
+  return $exists
 }
 
-# Function to move files
 move_files() {
-  local source_dir=$1
-  local target_dir=$2
-  local pattern=$3
-  local log_file=$4
+  local source_dir="$1"
+  local target_dir="$2"
+  local pattern="$3"
   local files=($(ls $source_dir/$pattern 2>/dev/null))
+
   for file in "${files[@]}"; do
     mv "$source_dir/$file" "$target_dir"
-    echo "Moved file: $file from $source_dir to $target_dir"   >> "$log_file"
+    log_message "Moved file: $file from $source_dir to $target_dir"
   done
+
+  if [ ${#files[@]} -eq 0 ]; then
+    log_message "No files matching pattern '$pattern' to move from '$source_dir'."
+  fi
 }
 
-# Function to create JSON from the latest file
+
 create_json_from_latest_file() {
-  local directory=$1
-  local convert_script=$2
-  local log_file=$3
-  local recent_file=$(ls -t "$directory" | head -1)
+  local directory="$1"
+  local convert_script="$2"
+  local recent_file=$(ls -t "$directory"/* 2>/dev/null | head -1) # Ensure this captures the full path
   local output_file="${recent_file%.*}_$(date +%Y_%m_%d).json"
-  if [ -f "$directory/$convert_script" ]; then
+
+  if [ -f "$directory/$convert_script" ] && [ -n "$recent_file" ]; then
     python3 "$directory/$convert_script" "$recent_file" "$output_file"
-    echo "JSON created from the latest file: $output_file"   >> "$log_file"
+    log_message "JSON created from the latest file: $output_file"
   else
-    echo "$convert_script not found in $directory. Skipping JSON creation."   >> "$log_file"
+    if [ ! -f "$directory/$convert_script" ]; then
+      log_message "$convert_script not found in $directory. Skipping JSON creation."
+    elif [ -z "$recent_file" ]; then
+      log_message "No recent file found in $directory for JSON creation."
+    fi
   fi
 }
 
@@ -154,71 +147,74 @@ main() {
   local skip_confirmation=$1
   local config_file=$2
 
-  # Read configuration to set log_directory and other settings FIRST
+  # Read configuration to set log_directory and other settings
   read_config "$config_file"
 
-  log_directory="$log_directory"
+  # Initialize log file for the session
+  log_directory="${log_directory:-/path/to/your/logs}" # Default path if not set
   log_file="$log_directory/script_log_$(date +%Y%m%d_%H%M%S).log"
   mkdir -p "$log_directory"
-  echo "Log initialized at $(date)" > "$log_file"  # Creates the file and logs the initialization time
+  log_message "Log initialization started."
 
+  # Activate virtual environment
+  activate_venv "$venv_directory"
 
-  # Step 2: Activate virtual environment
-  activate_venv "$venv_directory" "$log_file"
-
-  # Step 3: Check the number of HTML files in the current directory
+  # Check the number of HTML files in the txt2kb directory
   local html_count=$(count_files "$txt2kb" "*.html")
-  echo "HTML file count: $html_count" >> "$log_file"
+  log_message "HTML file count in '$txt2kb': $html_count"
   if [ "$html_count" -gt 1 ]; then
-    echo "More than 1 HTML file found." >> "$log_file"
+    log_message "More than 1 HTML file found."
   else
-    echo "0 HTML files found. Skipping to step 5."   >> "$log_file"
+    log_message "0 HTML files found. Skipping to next steps."
   fi
 
-  # Step 4: Execute the combine.py script
+  # Execute the combine.py script if confirmation is not skipped or is affirmative
   if [ "$skip_confirmation" != "-y" ]; then
     read -p "Do you want to run the combine.py script? (y/n): " choice
-    echo "User choice: $choice"   >> "$log_file"
-    [[ "$choice" != "y" ]] && exit 0
+    log_message "User choice for running combine.py: $choice"
+    [[ "$choice" != "y" ]] && return
   fi
-  execute_script "$combine_script" "$txt2kb" "$skip_confirmation" >> "$log_file"
+  execute_script "$combine_script" "$txt2kb" "$skip_confirmation"
 
-  # Step 5: Check if the combined file exists
+  # Check if the combined file exists
   if check_files_pattern_exist "$txt2kb" "combined*"; then
-    echo "Combined file found."   >> "$log_file"
+    log_message "Combined file found."
   else
-    echo "Combined file not found. Skipping to step 15."   >> "$log_file"
-    exit 0
+    log_message "Combined file not found. Exiting."
+    return
   fi
 
-  # Step 6: Move the combined file to the txt2kb/combined directory
+  # Move the combined file to the txt2kb/combined directory
   if [ "$skip_confirmation" != "-y" ]; then
     read -p "Do you want to move the combined file to the txt2kb/combined directory? (y/n): " choice
-    echo "User choice: $choice"   >> "$log_file"
-    [[ "$choice" != "y" ]] && exit 0
+    log_message "User choice for moving combined file: $choice"
+    [[ "$choice" != "y" ]] && return
   fi
-  move_files "$txt2kb" "$txt2kb_combined" "combined*" >> "$log_file"
+  move_files "$txt2kb" "$txt2kb_combined" "combined*"
 
-  # Step 7: Navigate to the txt2kb/converted directory
-  navigate_to_directory "$txt2kb_converted" >> "$log_file"
+  # Navigate to the txt2kb/converted directory
+  navigate_to_directory "$txt2kb_converted"
 
-  # Step 8: Create JSON from the latest file in the txt2kb/converted directory
+  # Create JSON from the latest file in the txt2kb/converted directory
   if [ "$skip_confirmation" != "-y" ]; then
     read -p "Do you want to convert the latest file to JSON? (y/n): " choice
-    echo "User choice: $choice"   >> "$log_file"
-    [[ "$choice" != "y" ]] && exit 0
+    log_message "User choice for converting to JSON: $choice"
+    [[ "$choice" != "y" ]] && return
   fi
-  create_json_from_latest_file "$txt2kb_converted" "$convert_script" >> "$log_file"
+  create_json_from_latest_file "$txt2kb_converted" "$convert_script"
 
-  # Step 9: Archive HTML files in the txt2kb directory
-  navigate_to_directory "$txt2kb" >> "$log_file"
+  # Archive HTML files in the txt2kb directory
+  navigate_to_directory "$txt2kb"
   if [ "$skip_confirmation" != "-y" ]; then
     read -p "Do you want to archive all HTML files in the txt2kb directory? (y/n): " choice
-    echo "User choice: $choice"   >> "$log_file"
-    [[ "$choice" != "y" ]] && exit 0
+    log_message "User choice for archiving HTML files: $choice"
+    [[ "$choice" != "y" ]] && return
   fi
-  execute_script "$archive_script" "$txt2kb" "$skip_confirmation" >> "$log_file"
+  execute_script "$archive_script" "$txt2kb" "$skip_confirmation"
+
+  log_message "Script execution completed."
 }
+
 
 # Check if the -y argument is provided
 if [ "$1" == "-y" ]; then
@@ -227,4 +223,4 @@ else
   main "" "config.ini"
 fi
 
-echo "Script execution completed. Log file: $log_file"
+log_message "Script execution completed."
