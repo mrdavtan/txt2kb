@@ -2,7 +2,7 @@
 set -x
 
 # Initialize global log variables
-log_directory="/path/to/your/logs" # Change this path to your actual log directory path
+log_directory="./logs" # Change this path to your actual log directory path
 log_file="$log_directory/script_log_$(date +%Y%m%d_%H%M%S).log"
 
 # Function to append messages to the log file
@@ -73,22 +73,40 @@ count_files() {
   echo "$count"
 }
 
-# Function to execute scripts
+#execute_script() {
+#  local script="$1"
+#  log_message "Executing script: $script"
+#  if [ -f "$script" ]; then
+#    log_message "Script file exists. Executing..."
+#    python3 "$script"
+#    log_message "Script executed successfully."
+#  else
+#    log_message "Script file not found: $script. Exiting..."
+#    return 1  # Return error status since script file is not found
+#  fi
+#}
+#
+
 execute_script() {
   local script="$1"
-  local directory="$2"
-  local skip_confirmation="$3"
-  if [ -f "$directory/$script" ]; then
-    if [ "$skip_confirmation" != "-y" ]; then
-      read -p "Press Enter to execute $script in $directory, or 'q' to quit: " choice
-      log_message "User choice: $choice"
-      [[ "$choice" == "q" ]] && return 1
-    fi
-    cd "$directory" || exit
+  log_message "Executing script: $script"
+  if [ -f "$script" ]; then
+    log_message "Script file exists. Executing..."
+
+    # Get the directory of the script
+    local script_directory="$(dirname "$script")"
+
+    # Change to the script's directory
+    cd "$script_directory" || return 1
+
     python3 "$script"
-    log_message "$script executed in $directory."
+    log_message "Script executed successfully."
+
+    # Change back to the original directory
+    cd - >/dev/null || return 1
   else
-    log_message "$script not found in $directory. Skipping execution."
+    log_message "Script file not found: $script. Exiting..."
+    return 1  # Return error status since script file is not found
   fi
 }
 
@@ -112,18 +130,27 @@ move_files() {
   local source_dir="$1"
   local target_dir="$2"
   local pattern="$3"
-  local files=($(ls $source_dir/$pattern 2>/dev/null))
+  echo "Source directory: $source_dir"
+  echo "Target directory: $target_dir"
+  echo "File pattern: $pattern"
+
+  local files=($(find "$source_dir" -maxdepth 1 -type f -name "$pattern"))
+  echo "Matching files: ${files[@]}"
 
   for file in "${files[@]}"; do
-    mv "$source_dir/$file" "$target_dir"
-    log_message "Moved file: $file from $source_dir to $target_dir"
+    echo "Moving file: $file"
+    mv "$file" "$target_dir"
+    if [ $? -eq 0 ]; then
+      log_message "Moved file: $file to $target_dir"
+    else
+      log_message "Failed to move file: $file to $target_dir"
+    fi
   done
 
   if [ ${#files[@]} -eq 0 ]; then
-    log_message "No files matching pattern '$pattern' to move from '$source_dir'."
+    log_message "No files matching pattern '$pattern' found in directory '$source_dir'."
   fi
 }
-
 
 create_json_from_latest_file() {
   local directory="$1"
@@ -144,8 +171,7 @@ create_json_from_latest_file() {
 }
 
 main() {
-  local skip_confirmation=$1
-  local config_file=$2
+  local config_file=$1
 
   # Read configuration to set log_directory and other settings
   read_config "$config_file"
@@ -168,59 +194,25 @@ main() {
     log_message "0 HTML files found. Skipping to next steps."
   fi
 
-  # Execute the combine.py script if confirmation is not skipped or is affirmative
-  if [ "$skip_confirmation" != "-y" ]; then
-    read -p "Do you want to run the combine.py script? (y/n): " choice
-    log_message "User choice for running combine.py: $choice"
-    [[ "$choice" != "y" ]] && return
-  fi
-  execute_script "$combine_script" "$txt2kb" "$skip_confirmation"
-
-  # Check if the combined file exists
-  if check_files_pattern_exist "$txt2kb" "combined*"; then
-    log_message "Combined file found."
-  else
-    log_message "Combined file not found. Exiting."
-    return
-  fi
+  # Execute the combine.py script
+  execute_script "$combine_script"
 
   # Move the combined file to the txt2kb/combined directory
-  if [ "$skip_confirmation" != "-y" ]; then
-    read -p "Do you want to move the combined file to the txt2kb/combined directory? (y/n): " choice
-    log_message "User choice for moving combined file: $choice"
-    [[ "$choice" != "y" ]] && return
-  fi
-  move_files "$txt2kb" "$txt2kb_combined" "combined*"
+  move_files "$txt2kb" "$txt2kb_combined" "combined_*.html"
+
+  #execute_script "$combine_script"
 
   # Navigate to the txt2kb/converted directory
   navigate_to_directory "$txt2kb_converted"
 
   # Create JSON from the latest file in the txt2kb/converted directory
-  if [ "$skip_confirmation" != "-y" ]; then
-    read -p "Do you want to convert the latest file to JSON? (y/n): " choice
-    log_message "User choice for converting to JSON: $choice"
-    [[ "$choice" != "y" ]] && return
-  fi
   create_json_from_latest_file "$txt2kb_converted" "$convert_script"
 
   # Archive HTML files in the txt2kb directory
   navigate_to_directory "$txt2kb"
-  if [ "$skip_confirmation" != "-y" ]; then
-    read -p "Do you want to archive all HTML files in the txt2kb directory? (y/n): " choice
-    log_message "User choice for archiving HTML files: $choice"
-    [[ "$choice" != "y" ]] && return
-  fi
-  execute_script "$archive_script" "$txt2kb" "$skip_confirmation"
+  execute_script "$archive_script" "$txt2kb"
 
   log_message "Script execution completed."
 }
 
-
-# Check if the -y argument is provided
-if [ "$1" == "-y" ]; then
-  main "-y" "config.ini"
-else
-  main "" "config.ini"
-fi
-
-log_message "Script execution completed."
+main "config.ini"
