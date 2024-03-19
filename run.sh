@@ -75,58 +75,59 @@ count_files() {
 
 execute_script() {
   local script="$1"
+  local latest_html_file="$2"
   log_message "Executing script: $script"
-
-  # Get the directory and script name
-  local script_directory=$(dirname "$script")
-  local script_name=$(basename "$script")
-
   if [ -f "$script" ]; then
     log_message "Script file exists. Executing..."
 
-    # Navigate to the script's directory
-    pushd "$script_directory" >/dev/null
+    # Get the directory of the script
+    local script_directory="$(dirname "$script")"
 
-    # Execute the script
-    python3 "$script_name"
-    local exit_status=$?
+    # Change to the script's directory
+    cd "$script_directory" || return 1
 
-    # Navigate back to the previous directory
-    popd >/dev/null
+    python3 "$script" "$latest_html_file"
+    log_message "Script executed successfully."
 
-    if [ $exit_status -eq 0 ]; then
-      log_message "Script executed successfully."
-    else
-      log_message "Script execution failed with exit status: $exit_status"
-    fi
+    # Change back to the original directory
+    cd - >/dev/null || return 1
   else
     log_message "Script file not found: $script. Exiting..."
     return 1
   fi
 }
 
-#execute_script() {
-#  local script="$1"
-#  log_message "Executing script: $script"
-#  if [ -f "$script" ]; then
-#    log_message "Script file exists. Executing..."
-#
-#    # Get the directory of the script
-#    local script_directory="$(dirname "$script")"
-#
-#    # Change to the script's directory
-#    cd "$script_directory" || return 1
-#
-#    python3 "$script"
-#    log_message "Script executed successfully."
-#
-#    # Change back to the original directory
-#    cd - >/dev/null || return 1
-#  else
-#    log_message "Script file not found: $script. Exiting..."
-#    return 1  # Return error status since script file is not found
-#  fi
-#}
+ #execute_script() {
+ #  local script="$1"
+ #  log_message "Executing script: $script"
+ #
+ #  # Get the directory and script name
+ #  local script_directory=$(dirname "$script")
+ #  local script_name=$(basename "$script")
+ #
+ #  if [ -f "$script" ]; then
+ #    log_message "Script file exists. Executing..."
+ #
+ #    # Navigate to the script's directory
+ #    pushd "$script_directory" >/dev/null
+ #
+ #    # Execute the script
+ #    python3 "$script_name"
+ #    local exit_status=$?
+ #
+ #    # Navigate back to the previous directory
+ #    popd >/dev/null
+ #
+ #    if [ $exit_status -eq 0 ]; then
+ #      log_message "Script executed successfully."
+ #    else
+ #      log_message "Script execution failed with exit status: $exit_status"
+ #    fi
+ #  else
+ #    log_message "Script file not found: $script. Exiting..."
+ #    return 1
+ #  fi
+ #}
 
 check_files_pattern_exist() {
   local directory="$1"
@@ -232,15 +233,33 @@ main() {
     log_message "Script execution failed with exit status: $exit_status"
   fi
 
-  # Navigate to the txt2kb/converted directory
-  navigate_to_directory "$txt2kb_converted"
+# Move the converted file to the txt2kb/converted directory
+move_files "$txt2kb_combined" "$txt2kb_converted" "multiday_network_*.html"
 
-  # Create JSON from the latest file in the txt2kb/converted directory
-  create_json_from_latest_file "$txt2kb_converted" "$convert_script"
+# Navigate to the txt2kb/converted directory
+navigate_to_directory "$txt2kb_converted"
+
+# Find and process each HTML file individually
+for html_file in "$txt2kb_converted"/multiday_network_*.html; do
+  if [ -f "$html_file" ]; then
+    log_message "Processing HTML file: $html_file"
+
+    # Execute the convert.py script for the individual HTML file
+    log_message "Executing convert.py script for $html_file"
+    python3 "$txt2kb_converted/convert.py" "$html_file"
+    exit_status=$?
+    if [ $exit_status -eq 0 ]; then
+      log_message "Script executed successfully for $html_file"
+    else
+      log_message "Script execution failed with exit status: $exit_status for $html_file"
+    fi
+  fi
+done
+
 
   # Archive HTML files in the txt2kb directory
-  navigate_to_directory "$txt2kb"
-  execute_script "$archive_script" "$txt2kb"
+  #navigate_to_directory "$txt2kb"
+  #execute_script "$archive_script" "$txt2kb"
 
   log_message "Script execution completed."
 }
