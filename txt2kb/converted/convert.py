@@ -23,11 +23,27 @@ def convert_to_json(nodes, edges):
     # Convert nodes to the desired format
     formatted_nodes = []
     for node in nodes:
+        title_match = re.search(r'UUID: (.*?)<br>Date: (.*?)<br>Source: (.*?)<br>URL: <a href=\'(.*?)\' target=\'_blank\'>', node["title"])
+        if title_match:
+            uuid = title_match.group(1)
+            date = title_match.group(2)
+            source = title_match.group(3)
+            url = title_match.group(4)
+        else:
+            uuid = ""
+            date = ""
+            source = ""
+            url = ""
+
         formatted_node = {
             "id": node["id"],
             "label": node["label"],
             "color": node["color"],
-            "shape": node["shape"]
+            "shape": node["shape"],
+            "uuid": uuid,
+            "date": date,
+            "source": source,
+            "url": url
         }
         formatted_nodes.append(formatted_node)
 
@@ -60,7 +76,7 @@ def main(html_file):
     json_data = convert_to_json(nodes, edges)
 
     # Generate the output JSON file name based on the current date and time
-    timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     output_file = f"multiday_network_{timestamp}.json"
 
     save_json_to_file(json_data, output_file)

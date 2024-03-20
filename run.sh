@@ -1,5 +1,5 @@
 #!/bin/bash
-set -x
+#set -x
 
 # Initialize global log variables
 log_directory="./logs" # Change this path to your actual log directory path
@@ -22,6 +22,7 @@ read_config() {
         "venv_directory") venv_directory="$value" ;;
         "txt2kb_root") txt2kb_root="$value" ;;
         "txt2kb") txt2kb="$value" ;;
+        "citizenspace") citizenspace="$value" ;;
         "newscollector_root") newscollector_root="$value" ;;
         "txt2kb_combined") txt2kb_combined="$value" ;;
         "txt2kb_converted") txt2kb_converted="$value" ;;
@@ -97,37 +98,6 @@ execute_script() {
   fi
 }
 
- #execute_script() {
- #  local script="$1"
- #  log_message "Executing script: $script"
- #
- #  # Get the directory and script name
- #  local script_directory=$(dirname "$script")
- #  local script_name=$(basename "$script")
- #
- #  if [ -f "$script" ]; then
- #    log_message "Script file exists. Executing..."
- #
- #    # Navigate to the script's directory
- #    pushd "$script_directory" >/dev/null
- #
- #    # Execute the script
- #    python3 "$script_name"
- #    local exit_status=$?
- #
- #    # Navigate back to the previous directory
- #    popd >/dev/null
- #
- #    if [ $exit_status -eq 0 ]; then
- #      log_message "Script executed successfully."
- #    else
- #      log_message "Script execution failed with exit status: $exit_status"
- #    fi
- #  else
- #    log_message "Script file not found: $script. Exiting..."
- #    return 1
- #  fi
- #}
 
 check_files_pattern_exist() {
   local directory="$1"
@@ -193,11 +163,12 @@ create_json_from_latest_file() {
 main() {
   local config_file=$1
 
+
   # Read configuration to set log_directory and other settings
   read_config "$config_file"
 
   # Initialize log file for the session
-  log_directory="${log_directory:-/path/to/your/logs}" # Default path if not set
+  log_directory="${log_directory:-./logs}" # Default path if not set
   log_file="$log_directory/script_log_$(date +%Y%m%d_%H%M%S).log"
   mkdir -p "$log_directory"
   log_message "Log initialization started."
@@ -210,58 +181,86 @@ main() {
   log_message "HTML file count in '$txt2kb': $html_count"
   if [ "$html_count" -gt 1 ]; then
     log_message "More than 1 HTML file found."
-  else
-    log_message "0 HTML files found. Skipping to next steps."
-  fi
 
-  # Execute the combine.py script
-  execute_script "$combine_script"
+    # Execute the combine.py script
+    execute_script "$combine_script"
 
-  # Move the combined file to the txt2kb/combined directory
-  move_files "$txt2kb" "$txt2kb_combined" "combined_*.html"
+    # Move the combined file to the txt2kb/combined directory
+    move_files "$txt2kb" "$txt2kb_combined" "combined_*.html"
 
-  # Navigate to the txt2kb/combined directory
-  navigate_to_directory "$txt2kb_combined"
+    # Navigate to the txt2kb/combined directory
+    navigate_to_directory "$txt2kb_combined"
 
-  # Execute the combine.py script inside the txt2kb/combined directory
-  log_message "Executing combine.py script inside $txt2kb_combined"
-  python3 "$txt2kb_combined/combine.py"
-  local exit_status=$?
-  if [ $exit_status -eq 0 ]; then
-    log_message "Script executed successfully."
-  else
-    log_message "Script execution failed with exit status: $exit_status"
-  fi
-
-# Move the converted file to the txt2kb/converted directory
-move_files "$txt2kb_combined" "$txt2kb_converted" "multiday_network_*.html"
-
-# Navigate to the txt2kb/converted directory
-navigate_to_directory "$txt2kb_converted"
-
-# Find and process each HTML file individually
-for html_file in "$txt2kb_converted"/multiday_network_*.html; do
-  if [ -f "$html_file" ]; then
-    log_message "Processing HTML file: $html_file"
-
-    # Execute the convert.py script for the individual HTML file
-    log_message "Executing convert.py script for $html_file"
-    python3 "$txt2kb_converted/convert.py" "$html_file"
-    exit_status=$?
+    # Execute the combine.py script inside the txt2kb/combined directory
+    log_message "Executing combine.py script inside $txt2kb_combined"
+    python3 "$txt2kb_combined/combine.py"
+    local exit_status=$?
     if [ $exit_status -eq 0 ]; then
-      log_message "Script executed successfully for $html_file"
+      log_message "Script executed successfully."
     else
-      log_message "Script execution failed with exit status: $exit_status for $html_file"
+      log_message "Script execution failed with exit status: $exit_status"
     fi
+
+    # Move the converted file to the txt2kb/converted directory
+    move_files "$txt2kb_combined" "$txt2kb_converted" "multiday_network_*.html"
+
+    # Navigate to the txt2kb/converted directory
+    navigate_to_directory "$txt2kb_converted"
+
+    # Find and process each HTML file individually
+    for html_file in "$txt2kb_converted"/multiday_network_*.html; do
+      if [ -f "$html_file" ]; then
+        log_message "Processing HTML file: $html_file"
+
+        # Execute the convert.py script for the individual HTML file
+        log_message "Executing convert.py script for $html_file"
+        python3 "$txt2kb_converted/convert.py" "$html_file"
+        exit_status=$?
+        if [ $exit_status -eq 0 ]; then
+          log_message "Script executed successfully for $html_file"
+        else
+          log_message "Script execution failed with exit status: $exit_status for $html_file"
+        fi
+      fi
+    done
+
+    log_message "Starting graph update process for citizenspace"
+    cp *.json ../../../citizenspace/
+
+    python3 "$txt2kb_converted/archive.py"
+
+    log_message "moving to citizenspace directory"
+    navigate_to_directory "$citizenspace"
+    log_message "replacing and archiving previous graph"
+    python3 "$citizenspace/replace.sh"
+
+    # Archive HTML files in the txt2kb directory
+    navigate_to_directory "$txt2kb"
+    execute_script "$archive_script"
+
+    log_message "Script execution completed."
+
+  exit 0
+
+
+  # Since there are no html files to combine, check newcollector for articles ready to process.
+  else
+    log_message "0 HTML files found. Checking newscollector for articles to process."
+
+  # Check for JSON files in newscollector
+  json_count=$(count_files "../retrievers/newscollector/newscollector/articles" "*.json")
+
+  if [ "$json_count" -gt 1 ]; then
+    echo "More than 1 JSON file found in $newscollector_root/newscollector/articles"
+    navigate_to_directory "$txt2kb"
+    python3 "$txt2kb/process.py" "../../retrievers/newscollector/newscollector/articles/"
+
+  else
+    echo "No JSON files found in $newscollector_root/newscollector/articles"
+    python3 "../retrievers/newscollector/newscollector/newscollector.py"
+    gnome-terminal --bash -c "python3 '../retrievers/newscollector/newscollector/tech_newscollector.py'; exec bash"
   fi
-done
-
-
-  # Archive HTML files in the txt2kb directory
-  #navigate_to_directory "$txt2kb"
-  #execute_script "$archive_script" "$txt2kb"
-
-  log_message "Script execution completed."
+fi
 }
-
 main "config.ini"
+
