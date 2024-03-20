@@ -15,6 +15,10 @@ def extract_data_from_html(html_path):
         if nodes_match:
             nodes_str = nodes_match.group(1)
             nodes = eval(nodes_str)
+            for node in nodes:
+                node['article_uuid'] = node.get('article_uuid', '')
+                node['article_date'] = node.get('article_date', '')
+                node['article_source'] = node.get('article_source', '')
         # Extracting edges
         edges_match = re.search(r"edges = new vis\.DataSet\((.*?)\);", content, re.DOTALL)
         if edges_match:
@@ -24,32 +28,38 @@ def extract_data_from_html(html_path):
 
 def combine_networks(html_files):
     """Combine nodes and edges from multiple HTML files into a single network."""
-    combined_nodes = []
-    combined_edges = []
+    combined_nodes, combined_edges = [], []
+    unique_uuids = set()
     for html_file in html_files:
         nodes, edges = extract_data_from_html(html_file)
-        combined_nodes.extend(nodes)
+        for node in nodes:
+            if node['id'] not in unique_uuids:  # Ensure unique nodes by ID
+                combined_nodes.append(node)
+                unique_uuids.add(node['id'])
         combined_edges.extend(edges)
-    # Removing potential duplicates
-    combined_nodes = [dict(t) for t in {tuple(node.items()) for node in combined_nodes}]
-    combined_edges = [dict(t) for t in {tuple(edge.items()) for edge in combined_edges}]
     return combined_nodes, combined_edges
 
 def create_combined_network(nodes, edges, output_html='combined_network.html'):
     net = Network(directed=True, width="3000px", height="2000px", bgcolor="#eeeeee")
-    for node in nodes:
-        n_id = node.get('id')
-        node.pop('id', None)
-        net.add_node(n_id, **node)
+    added_node_ids = set()  # Track added nodes
+
+    # Add nodes to the network
+    for node_data in nodes:
+        node_id = node_data['id']
+        net.add_node(node_id, **node_data)
+        added_node_ids.add(node_id)  # Remember added nodes
+
+    # Add edges to the network, ensuring both nodes exist
     for edge in edges:
-        from_id = edge.get('from')
-        to_id = edge.get('to')
-        edge.pop('from', None)
-        edge.pop('to', None)
-        net.add_edge(from_id, to_id, **edge)
-    # Get current date and time
+        from_id = edge.pop('from')
+        to_id = edge.pop('to')
+        if from_id in added_node_ids and to_id in added_node_ids:
+            net.add_edge(from_id, to_id, **edge)
+        else:
+            print(f"Skipping edge from {from_id} to {to_id}: One or both nodes not found.")
+
+    # Save and print the network visualization's file name
     current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Update output file name with date and time
     output_html = f"combined_network_{current_datetime}.html"
     net.save_graph(output_html)
     print(f"Network visualization saved to {output_html}.")
@@ -62,3 +72,4 @@ combined_nodes, combined_edges = combine_networks(html_files)
 
 # Creating and saving the combined network
 create_combined_network(combined_nodes, combined_edges)
+

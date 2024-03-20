@@ -112,10 +112,18 @@ class KB():
         except:
             return None
 
-    def add_entity(self, e):
-        self.entities[e["title"]] = {k:v for k,v in e.items() if k != "title"}
+    def add_entity(self, e, article_uuid, article_url, article_date, article_source):
+        self.entities[e["title"]] = {
+            **{k:v for k,v in e.items() if k != "title"},
+            "article_uuid": article_uuid,
+            "article_url": article_url,
+            "article_date": article_date,
+            "article_source": article_source
+        }
 
-    def add_relation(self, r, article_title, article_publish_date):
+
+    def add_relation(self, r, article_title, article_publish_date, article_uuid, article_url, article_source):
+
         # check on wikipedia
         candidate_entities = [r["head"], r["tail"]]
         entities = [self.get_wikipedia_data(ent) for ent in candidate_entities]
@@ -126,7 +134,7 @@ class KB():
 
         # manage new entities
         for e in entities:
-            self.add_entity(e)
+            self.add_entity(e, article_uuid, article_url, article_publish_date, article_source)
 
         # rename relation entities with their wikipedia titles
         r["head"] = entities[0]["title"]
@@ -199,8 +207,7 @@ def from_small_text_to_kb(text, verbose=False):
 
     return kb
 
-
-def from_text_to_kb(text, article_url, tokenizer, model, span_length=128, article_title=None, article_publish_date=None, verbose=False):
+def from_text_to_kb(text, article_url, tokenizer, model, span_length=128, article_title=None, article_publish_date=None, article_uuid=None, article_source=None, verbose=False):
 
     logging.debug("Starting to process text for KB creation")
     # tokenize whole text
@@ -265,7 +272,9 @@ def from_text_to_kb(text, article_url, tokenizer, model, span_length=128, articl
                     "spans": [spans_boundaries[current_span_index]]
                 }
             }
-            kb.add_relation(relation, article_title, article_publish_date)
+
+            kb.add_relation(relation, article_title, article_publish_date, article_uuid, article_url, article_source)
+
         i += 1
 
     return kb
@@ -273,14 +282,21 @@ def from_text_to_kb(text, article_url, tokenizer, model, span_length=128, articl
 def save_network_html(kb, filename="network.html"):
     net = Network(directed=True, width="700px", height="700px", bgcolor="#eeeeee")
     color_entity = "#00FF00"
-    for e in kb.entities.keys():
-        net.add_node(e, shape="circle", color=color_entity)
+    for e, data in kb.entities.items():
+        net.add_node(e, shape="circle", color=color_entity,
+                     article_uuid=data.get('article_uuid', ''),
+                     article_url=data.get('article_url', ''),
+                     article_date=data.get('article_date', ''),
+                     article_source=data.get('article_source', ''))
     for r in kb.relations:
         net.add_edge(r["head"], r["tail"], title=r["type"], label=r["type"])
     net.repulsion(node_distance=200, central_gravity=0.2, spring_length=200, spring_strength=0.05, damping=0.09)
     net.set_edge_smooth('dynamic')
     net.save_graph(filename)
     print(f"Network visualization saved to {filename}. Open this file in your web browser to view the network.")
+
+
+
 
 def process_json_file(json_file_path, tokenizer, model):
     with open(json_file_path, 'r', encoding='utf-8') as file:
@@ -289,17 +305,25 @@ def process_json_file(json_file_path, tokenizer, model):
     # Safely access 'body' and 'url' keys, providing default values if they are missing
     text = article_data.get('body', "")
     article_url = article_data.get('url', "No URL available")
+    article_uuid = article_data.get('id', "")
+    article_date = article_data.get('date', "")
+    article_source = article_data.get('source', "")
 
     if not text:  # If 'text' is empty (either 'body' was missing or empty in the JSON)
         logging.warning(f"No content found in 'body' for {json_file_path}. Skipping file.")
         return
 
     logging.debug(f"Processing {json_file_path}...")
-    kb = from_text_to_kb(text, article_url, tokenizer, model, verbose=True, article_title=article_data.get('title'), article_publish_date=article_data.get('date'))
+    kb = from_text_to_kb(text, article_url, tokenizer, model, verbose=True,
+                         article_title=article_data.get('title'),
+                         article_publish_date=article_data.get('date'),
+                         article_uuid=article_uuid,
+                         article_source=article_source)
     kb.print()
     # Generating network visualization for each processed file
     visualization_filename = f"{os.path.splitext(os.path.basename(json_file_path))[0]}_network.html"
     save_network_html(kb, filename=visualization_filename)
+
 
 def process_directory(directory_path, tokenizer, model):
     for filename in os.listdir(directory_path):
