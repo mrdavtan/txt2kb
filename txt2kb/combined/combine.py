@@ -15,6 +15,10 @@ def extract_data_from_html(html_path):
         if nodes_match:
             nodes_str = nodes_match.group(1)
             nodes = eval(nodes_str)
+            for node in nodes:
+                node['article_uuid'] = node.get('article_uuid', '')
+                node['article_date'] = node.get('article_date', '')
+                node['article_source'] = node.get('article_source', '')
         # Extracting edges
         edges_match = re.search(r"edges = new vis\.DataSet\((.*?)\);", content, re.DOTALL)
         if edges_match:
@@ -24,74 +28,83 @@ def extract_data_from_html(html_path):
 
 def combine_networks(html_files):
     """Combine nodes and edges from multiple HTML files into a single network."""
-    combined_nodes = []
-    combined_edges = []
-    unique_nodes = set()
-    unique_edges = set()
+    combined_nodes, combined_edges = [], []
+    unique_uuids = set()
     for html_file in html_files:
         nodes, edges = extract_data_from_html(html_file)
         for node in nodes:
-            node_tuple = tuple(node.items())
-            if node_tuple not in unique_nodes:
+            if node['id'] not in unique_uuids:  # Ensure unique nodes by ID
                 combined_nodes.append(node)
-                unique_nodes.add(node_tuple)
-        for edge in edges:
-            edge_tuple = tuple(edge.items())
-            if edge_tuple not in unique_edges:
-                combined_edges.append(edge)
-                unique_edges.add(edge_tuple)
+                unique_uuids.add(node['id'])
+        combined_edges.extend(edges)
     return combined_nodes, combined_edges
 
 def create_combined_network(nodes, edges, output_html='combined_network.html'):
     net = Network(directed=True, width="3000px", height="2000px", bgcolor="#333333")
+    added_node_ids = set()  # Track added nodes
 
-    # Customize node appearance
-    net.set_options("""
-        var options = {
-            "nodes": {
-                "font": {
-                    "color": "black"
-                },
-                "color": {
-                    "highlight": {
-                        "background": "#DDDDDD"
-                    }
-                }
+    # Define network options, including node and edge styles
+    options = """
+    {
+        "nodes": {
+            "font": {
+                "color": "black"
             },
-            "edges": {
-                "color": {
-                    "color": "#FAE833",
-                    "highlight": "#FAE833"
+            "color": {
+                "border": "#2B7CE9",
+                "background": "#AAAAAA",
+                "highlight": {
+                    "border": "#2B7CE9",
+                    "background": "#AAAAAA"
                 }
             }
+        },
+        "edges": {
+            "color": {
+                "color": "#FAE833",
+                "highlight": "#FAE833"
+            },
+            "smooth": false
         }
-    """)
+    }
+    """
 
-    node_ids = set()  # Keep track of node IDs
-    for node in nodes:
-        n_id = node.get('id')
-        node.pop('id', None)
-        node['color'] = "#AAAAAA"  # Set the color for each node
-        net.add_node(n_id, **node)
-        node_ids.add(n_id)  # Add node ID to the set
+    net.set_options(options)
+
+    # Add nodes to the network, setting node color to #AAAAAA and including additional properties in the title
+    for node_data in nodes:
+        node_id = node_data['id']
+        article_uuid = node_data.get('article_uuid', '')
+        article_date = node_data.get('article_date', '')
+        article_source = node_data.get('article_source', '')
+        article_url = node_data.get('article_url', '')
+        # Construct a detailed title with the additional properties
+        detailed_title = f"UUID: {article_uuid}<br>Date: {article_date}<br>Source: {article_source}<br>URL: <a href='{article_url}' target='_blank'>{article_url}</a>"
+        # Update node data with the detailed title and set color
+        node_data['title'] = detailed_title
+        node_data['color'] = "#AAAAAA"
+        # Add the node to the network
+        net.add_node(node_id, **node_data)
+        added_node_ids.add(node_id)  # Remember added nodes
+
+    # Add edges to the network, ensuring both nodes exist
     for edge in edges:
-        from_id = edge.get('from')
-        to_id = edge.get('to')
-        if from_id not in node_ids or to_id not in node_ids:
-            print(f"Skipping edge: {from_id} -> {to_id} (missing node)")
-            continue  # Skip the edge if either source or target node is missing
-        edge.pop('from', None)
-        edge.pop('to', None)
-        net.add_edge(from_id, to_id, **edge)
-    # Get current date and time
+        from_id = edge.pop('from')
+        to_id = edge.pop('to')
+        if from_id in added_node_ids and to_id in added_node_ids:
+            net.add_edge(from_id, to_id, **edge)
+        else:
+            print(f"Skipping edge from {from_id} to {to_id}: One or both nodes not found.")
+
+
+    # Save and print the network visualization's file name
     current_datetime = datetime.now().strftime("%Y%m%d_%H%M%S")
-    # Update output file name with date and time
     output_html = f"multiday_network_{current_datetime}.html"
     net.save_graph(output_html)
     print(f"Network visualization saved to {output_html}.")
 
 # Assuming all your HTML files are in the same directory
-html_files = glob.glob('/home/davtan/code/txt2kb/txt2kb/combined/*.html')
+html_files = glob.glob('/home/davtan/code/txt2kb/txt2kb/*.html')
 
 # Combining data from all HTML files
 combined_nodes, combined_edges = combine_networks(html_files)

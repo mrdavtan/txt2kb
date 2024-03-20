@@ -280,8 +280,8 @@ def from_text_to_kb(text, article_url, tokenizer, model, span_length=128, articl
     return kb
 
 def save_network_html(kb, filename="network.html"):
-    net = Network(directed=True, width="700px", height="700px", bgcolor="#eeeeee")
-    color_entity = "#00FF00"
+    net = Network(directed=True, width="700px", height="700px", bgcolor="#333333")
+    color_entity = "#AAAAAA"
     for e, data in kb.entities.items():
         net.add_node(e, shape="circle", color=color_entity,
                      article_uuid=data.get('article_uuid', ''),

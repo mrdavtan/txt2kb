@@ -40,14 +40,43 @@ def combine_networks(html_files):
     return combined_nodes, combined_edges
 
 def create_combined_network(nodes, edges, output_html='combined_network.html'):
-    net = Network(directed=True, width="3000px", height="2000px", bgcolor="#eeeeee")
+    net = Network(directed=True, width="3000px", height="2000px", bgcolor="#333333")
     added_node_ids = set()  # Track added nodes
 
-    # Add nodes to the network
+    options = """
+    {
+        "nodes": {
+            "font": {
+                "color": "black"
+            },
+            "color": {
+                "border": "#2B7CE9",
+                "background": "#AAAAAA",
+                "highlight": {
+                    "border": "#2B7CE9",
+                    "background": "#AAAAAA"
+                }
+            }
+        },
+        "edges": {
+            "color": {
+                "color": "#FAE833",
+                "highlight": "#FAE833"
+            },
+            "smooth": false
+        }
+    }
+    """
+
+    net.set_options(options)
+
     for node_data in nodes:
         node_id = node_data['id']
+        # Explicitly set the node color to #AAAAAA
+        node_data['color'] = "#AAAAAA"
         net.add_node(node_id, **node_data)
-        added_node_ids.add(node_id)  # Remember added nodes
+        added_node_ids.add(node_id)
+
 
     # Add edges to the network, ensuring both nodes exist
     for edge in edges:
