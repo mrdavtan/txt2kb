@@ -232,7 +232,7 @@ main() {
     log_message "moving to citizenspace directory"
     navigate_to_directory "$citizenspace"
     log_message "replacing and archiving previous graph"
-    python3 "$citizenspace/replace.sh"
+    bash "$citizenspace/replace.sh"
 
     # Archive HTML files in the txt2kb directory
     navigate_to_directory "$txt2kb"
